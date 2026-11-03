@@ -1,0 +1,17 @@
+# Сборка и образы
+build/
+dist/
+*.dmg
+
+# Локальное: стенд тестов и рабочие заметки (пути и данные автора)
+e2e/
+handoff.md
+docs/textover-original/
+
+# Подпись своим сертификатом (см. build.sh)
+.signing
+
+# Мусор
+*.bak*
+.DS_Store
+xcuserdata/
