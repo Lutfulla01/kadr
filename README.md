@@ -1,6 +1,16 @@
 # Kadr
 
 <p align="center">
+  <img src="docs/images/kadr-hero.gif" width="900" alt="Kadr: история буфера и нажатие тремя пальцами">
+</p>
+
+<p align="center">
+  <a href="https://github.com/Lutfulla01/kadr/releases/download/v1.4/kadr-promo-16x9.mp4">Видео на 43 секунды (MP4)</a>
+  ·
+  <a href="https://github.com/Lutfulla01/kadr/releases/latest">Скачать dmg</a>
+</p>
+
+<p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/history-dark.png">
     <img src="docs/images/history-light.png" width="460" alt="Окно истории буфера Kadr">
@@ -258,6 +268,8 @@ Kadr is a macOS menu-bar utility for screenshots with an annotation editor. You 
 windows or run OCR on it. Kadr also has a drag-and-drop file shelf, a text-snippet shelf and an encrypted clipboard
 history that opens with a three-finger trackpad press. It makes no network connections at all: no telemetry,
 no update checks, no accounts. The UI is in Russian. Requires macOS 14+ on Apple Silicon or Intel.
+
+[Watch the 43-second video (MP4)](https://github.com/Lutfulla01/kadr/releases/download/v1.4/kadr-promo-16x9.mp4)
 
 **Features**
 
