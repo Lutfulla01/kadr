@@ -1,0 +1,40 @@
+Kadr — screenshots, annotations, shelves and clipboard history from the menu bar
+
+INSTALL
+1. Drag Kadr to the Applications folder (the arrow in the disk window).
+2. Launch Kadr from Applications. A viewfinder icon appears in the menu bar.
+
+FIRST LAUNCH
+Kadr is not notarized by Apple, so macOS blocks the first launch. Click "Done", then once:
+  System Settings → Privacy & Security → scroll down to the line about Kadr → "Open Anyway" →
+  confirm with your password or Touch ID, and launch Kadr again.
+After that it opens normally.
+
+On the first screenshot macOS asks for Screen Recording:
+  System Settings → Privacy & Security → Screen Recording → turn on Kadr, then restart it.
+Pasting for you (text shelf, clipboard history) and the three-finger press need Accessibility —
+Kadr asks the first time you paste.
+
+HOTKEYS (change them in Settings…)
+  ⌥⇧4  capture area (Space switches to window)
+  ⌥⇧5  capture window
+  ⌥⇧3  capture screen
+  ⌥⇧2  capture text (OCR) straight to the clipboard
+  ⌥⇧D  new shelf
+  ⌥⇧T  text shelf
+  ⌥⇧V  clipboard history
+
+Screenshots go to the clipboard and to Pictures/Screenshots.
+Editor: arrows, boxes, text, pixelate, counters, crop; ⌘C copies and closes.
+
+CLIPBOARD HISTORY (⌥⇧V)
+Everything you copy — text, links, images, files — with search. Just start typing to search;
+↩ pastes into the app you were in, ⌘1…⌘9 paste card N. ⌘-click several cards and press ↩
+to paste them one after another with Tab in between (login and password into a form).
+Passwords are masked; the eye shows them. Filters and Clear History are in the "…" menu.
+Press the trackpad with three fingers (a full click) to slide the history in; the same press hides it.
+If text is selected in the app, the same press copies it. A soft tick confirms every copy
+(turn it off in Settings…).
+The history is encrypted and stays on this Mac.
+
+Kadr makes no network connections, collects nothing and never pops up on its own.

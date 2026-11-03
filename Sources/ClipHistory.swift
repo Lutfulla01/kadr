@@ -36,8 +36,8 @@ struct ClipItem: Codable, Equatable {
         switch kind {
         case .file:
             let f = files
-            return f.count == 1 ? f[0].lastPathComponent : "\(f.count) " + russianPlural(f.count, "файл", "файла", "файлов")
-        case .image: return w > 0 ? "Изображение \(w)×\(h)" : "Изображение"
+            return f.count == 1 ? f[0].lastPathComponent : "\(f.count) " + Lp(f.count, "file", "files")
+        case .image: return w > 0 ? Lf("Image %d×%d", w, h) : L("Image")
         case .link: return URL(string: text)?.host ?? text
         case .text:
             return text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? text
@@ -51,14 +51,14 @@ struct ClipItem: Codable, Equatable {
         case .link: return text
         case .text:
             let lines = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-            return lines.count > 1 ? lines.dropFirst().joined(separator: " · ") : "\(text.count) " + russianPlural(text.count, "символ", "символа", "символов")
+            return lines.count > 1 ? lines.dropFirst().joined(separator: " · ") : "\(text.count) " + Lp(text.count, "character", "characters")
         }
     }
 
     /// Заголовок для списка и проверок: скрытые записи — точками.
     func shownTitle(revealed: Bool) -> String { concealed && !revealed ? "••••••••" : title }
     func shownSubtitle(revealed: Bool) -> String {
-        concealed && !revealed ? "Скрыто" + (sourceName.map { " · \($0)" } ?? "") : subtitle
+        concealed && !revealed ? L("Hidden") + (sourceName.map { " · \($0)" } ?? "") : subtitle
     }
 
     var plainText: String { kind == .image ? title : text }
@@ -94,7 +94,7 @@ enum ClipCrypto {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: Profile.keychainAccount,
-            kSecAttrLabel as String: "Kadr — ключ истории буфера",
+            kSecAttrLabel as String: L("Kadr Clipboard History Key"),
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
         ]
@@ -404,11 +404,11 @@ final class ClipStore {
         case .file: return it.files.first
         case .image:
             guard let d = imageData(it) else { return nil }
-            let u = ClipStore.viewDir.appendingPathComponent("Изображение \(ShelfStore.stamp()).png")
+            let u = ClipStore.viewDir.appendingPathComponent("\(L("Image")) \(ShelfStore.stamp()).png")
             try? d.write(to: u)
             return u
         case .text, .link:
-            let u = ClipStore.viewDir.appendingPathComponent("Текст.txt")
+            let u = ClipStore.viewDir.appendingPathComponent(L("Text") + ".txt")
             try? it.text.write(to: u, atomically: true, encoding: .utf8)
             return u
         }
@@ -485,16 +485,23 @@ enum ClipRecorder {
 
     struct Skip: Error { let reason: String }
 
-    static func prepare(_ s: Snapshot, sourceID: String?, sourceName: String?, skipPrivate: Bool, ignore: [String]) -> Result<Prepared, Skip> {
-        let types = s.types
-        if types.isEmpty { return .failure(Skip(reason: "пусто")) }
-        if types.contains(.kadrInternal) { return .failure(Skip(reason: "служебная запись Kadr")) }
+    /// Быстрая проверка по одним типам и источнику: будет ли копирование записано (nil) или почему пропущено.
+    /// Её же зовёт слежение за буфером, чтобы сыграть тик сразу, не дожидаясь разбора записи.
+    static func skipReason(types: [NSPasteboard.PasteboardType], sourceID: String?, skipPrivate: Bool, ignore: [String]) -> String? {
+        if types.isEmpty { return "пусто" }
+        if types.contains(.kadrInternal) { return "служебная запись Kadr" }
         if skipPrivate {
-            if types.contains(where: { privateTypes.contains($0) }) { return .failure(Skip(reason: "скрытая запись (настройка)")) }
+            if types.contains(where: { privateTypes.contains($0) }) { return "скрытая запись (настройка)" }
             if let sid = sourceID, ignore.contains(where: { $0.caseInsensitiveCompare(sid) == .orderedSame }) {
-                return .failure(Skip(reason: "программа в списке исключений (настройка)"))
+                return "программа в списке исключений (настройка)"
             }
         }
+        return nil
+    }
+
+    static func prepare(_ s: Snapshot, sourceID: String?, sourceName: String?, skipPrivate: Bool, ignore: [String]) -> Result<Prepared, Skip> {
+        let types = s.types
+        if let why = skipReason(types: types, sourceID: sourceID, skipPrivate: skipPrivate, ignore: ignore) { return .failure(Skip(reason: why)) }
         var item = ClipItem(kind: .text)
         item.sourceID = sourceID
         item.sourceName = sourceName
@@ -591,6 +598,7 @@ final class ClipMonitor {
     }
 
     private func tick() {
+        let t0 = CACurrentMediaTime()
         let pb = NSPasteboard.general
         let c = pb.changeCount
         if c != lastCount {
@@ -610,6 +618,11 @@ final class ClipMonitor {
             schedule(ClipMonitor.fastInterval)
             guard !paused else { return }
             let front = NSWorkspace.shared.frontmostApplication
+            // Тик — на каждое настоящее копирование (и повтор того же текста), но не на служебные записи Kadr.
+            if ClipRecorder.skipReason(types: pb.types ?? [], sourceID: front?.bundleIdentifier,
+                                       skipPrivate: Prefs.clipSkipPrivate, ignore: ClipRecorder.ignoreList) == nil {
+                CopySound.copied(detectedAt: t0)
+            }
             ClipRecorder.recordAsync(from: pb, sourceID: front?.bundleIdentifier, sourceName: front?.localizedName, store: ClipStore.shared)
         } else if interval != ClipMonitor.idleInterval && Date() > fastUntil {
             schedule(ClipMonitor.idleInterval)
@@ -653,7 +666,7 @@ final class ClipHistoryPanel: NSPanel, NSWindowDelegate {
         isOpaque = false
         backgroundColor = .clear
         delegate = self
-        title = edge ? "История буфера у края" : "История буфера"
+        title = edge ? L("Clipboard History (Screen Edge)") : L("Clipboard History")
         setAccessibilityTitle(title)
         setAccessibilityIdentifier(axPrefix)
         view = ClipHistoryView(panel: self, store: ClipStore.shared)
@@ -819,8 +832,8 @@ final class ClipHistoryPanel: NSPanel, NSWindowDelegate {
         let store = ClipStore.shared
         guard SequentialPaster.ensureAccess() else {
             store.write(list, plain: plain)
-            view.note("Скопировано. Чтобы вставлять сразу, включите Kadr в «Универсальном доступе»",
-                      button: ("Открыть", { SequentialPaster.openAccessibilitySettings() }))
+            view.note(L("Copied. To paste directly, turn on Kadr in Accessibility settings"),
+                      button: (L("Open"), { SequentialPaster.openAccessibilitySettings() }))
             return
         }
         // Панель у края не активирует Kadr: вставляем в программу, которая впереди сейчас
@@ -844,7 +857,7 @@ final class ClipHistoryPanel: NSPanel, NSWindowDelegate {
         guard !list.isEmpty else { return }
         ClipStore.shared.write(list, plain: false)
         if list.count == 1, let it = list.first { ClipStore.shared.touch(it.id) }
-        view.note(list.count == 1 ? "Скопировано" : "Скопировано: \(list.count) " + russianPlural(list.count, "запись", "записи", "записей"))
+        view.note(list.count == 1 ? L("Copied") : Lf("Copied %d %@", list.count, Lp(list.count, "item", "items")))
     }
 
     // MARK: Quick Look
@@ -857,7 +870,7 @@ final class ClipHistoryPanel: NSPanel, NSWindowDelegate {
 
     func quickLook(_ it: ClipItem) {
         if QLPreviewPanel.sharedPreviewPanelExists(), QLPreviewPanel.shared().isVisible { QLPreviewPanel.shared().orderOut(nil); return }
-        guard !it.concealed else { view.note("Просмотр скрытых записей выключен"); return }
+        guard !it.concealed else { view.note(L("Preview is turned off for hidden items")); return }
         previewItem = ClipStore.shared.previewURL(it)
         guard previewItem != nil, let ql = QLPreviewPanel.shared() else { return }
         ql.makeKeyAndOrderFront(nil)
@@ -869,7 +882,7 @@ final class ClipHistoryPanel: NSPanel, NSWindowDelegate {
 
 enum ClipFilter: Int, CaseIterable {
     case all, text, link, image, file, password
-    var title: String { ["Все", "Текст", "Ссылки", "Картинки", "Файлы", "Пароли"][rawValue] }
+    var title: String { [L("All"), L("Text"), L("Links"), L("Images"), L("Files"), L("Passwords")][rawValue] }
     var symbol: String { ["tray.full", "text.alignleft", "link", "photo", "doc", "key"][rawValue] }
     func match(_ it: ClipItem) -> Bool {
         switch self {
@@ -1050,7 +1063,7 @@ final class ClipHistoryView: NSVisualEffectView, NSTableViewDataSource, NSTableV
         pill.bezelStyle = .inline
         pill.controlSize = .small
         pill.font = .systemFont(ofSize: 11, weight: .medium)
-        pill.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Снять фильтр")
+        pill.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: L("Clear filter"))
         pill.imagePosition = .imageTrailing
         pill.symbolConfiguration = .init(pointSize: 9, weight: .semibold)
         pill.target = self
@@ -1080,7 +1093,7 @@ final class ClipHistoryView: NSVisualEffectView, NSTableViewDataSource, NSTableV
         table.menu = NSMenu()
         table.menu?.delegate = self
         table.setAccessibilityIdentifier(p + ".list")
-        table.setAccessibilityLabel("Записи истории")
+        table.setAccessibilityLabel(L("History items"))
         scroll.documentView = table
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
@@ -1111,31 +1124,31 @@ final class ClipHistoryView: NSVisualEffectView, NSTableViewDataSource, NSTableV
         noteButton.isHidden = true
         addSubview(noteButton)
 
-        search.placeholderString = "Поиск в истории"
+        search.placeholderString = L("Search history")
         search.delegate = self
         search.focusRingType = .none
         search.sendsSearchStringImmediately = true
         search.isHidden = true
         (search.cell as? NSSearchFieldCell)?.cancelButtonCell = nil   // закрывает крестик справа
         search.setAccessibilityIdentifier(p + ".search")
-        search.setAccessibilityLabel("Поиск в истории")
+        search.setAccessibilityLabel(L("Search history"))
         addSubview(search)
 
         line.wantsLayer = true
         addSubview(line)
 
-        searchB = ClipBarButton("magnifyingglass", "Поиск (или просто печатайте)", ax: p + ".bar.search", target: self, action: #selector(startSearchPressed))
-        historyB = ClipBarButton("clock", "История", ax: p + ".bar.history", target: self, action: #selector(showHistory))
-        pinnedB = ClipBarButton("pin", "Закреплённые", ax: p + ".bar.pinned", target: self, action: #selector(showPinned))
-        moreB = ClipBarButton("ellipsis", "Фильтры и действия", ax: p + ".bar.more", target: self, action: #selector(morePressed))
-        closeSearchB = ClipBarButton("xmark.circle.fill", "Закрыть поиск", ax: p + ".bar.closeSearch", target: self, action: #selector(endSearchPressed))
+        searchB = ClipBarButton("magnifyingglass", L("Search (or just start typing)"), ax: p + ".bar.search", target: self, action: #selector(startSearchPressed))
+        historyB = ClipBarButton("clock", L("History"), ax: p + ".bar.history", target: self, action: #selector(showHistory))
+        pinnedB = ClipBarButton("pin", L("Pinned"), ax: p + ".bar.pinned", target: self, action: #selector(showPinned))
+        moreB = ClipBarButton("ellipsis", L("Filters and actions"), ax: p + ".bar.more", target: self, action: #selector(morePressed))
+        closeSearchB = ClipBarButton("xmark.circle.fill", L("Close search"), ax: p + ".bar.closeSearch", target: self, action: #selector(endSearchPressed))
         closeSearchB.isHidden = true
         let collapseSymbol = panel.isEdge ? (Prefs.clipEdgeSide == "left" ? "chevron.left" : "chevron.right") : "xmark"
-        collapseB = ClipBarButton(collapseSymbol, "Спрятать", ax: p + ".bar.collapse", target: self, action: #selector(collapsePressed))
-        keepB = ClipBarButton("lock.open", "Не прятать после вставки", ax: p + ".bar.keep", target: self, action: #selector(keepPressed))
-        windowB = ClipBarButton("macwindow", "Открыть окном", ax: p + ".bar.window", target: self, action: #selector(windowPressed))
+        collapseB = ClipBarButton(collapseSymbol, L("Hide panel"), ax: p + ".bar.collapse", target: self, action: #selector(collapsePressed))
+        keepB = ClipBarButton("lock.open", L("Keep open after pasting"), ax: p + ".bar.keep", target: self, action: #selector(keepPressed))
+        windowB = ClipBarButton("macwindow", L("Open as window"), ax: p + ".bar.window", target: self, action: #selector(windowPressed))
         windowB.isHidden = !panel.isEdge
-        settingsB = ClipBarButton("gearshape", "Настройки", ax: p + ".bar.settings", target: self, action: #selector(settingsPressed))
+        settingsB = ClipBarButton("gearshape", L("Settings"), ax: p + ".bar.settings", target: self, action: #selector(settingsPressed))
         [searchB, historyB, pinnedB, moreB, closeSearchB, collapseB, keepB, windowB, settingsB].forEach { addSubview($0!) }
         historyB.active = true
         look()
@@ -1244,7 +1257,7 @@ final class ClipHistoryView: NSVisualEffectView, NSTableViewDataSource, NSTableV
         pinnedB.active = pinnedTab
         pill.isHidden = filter == .all
         pill.title = filter.title
-        pill.setAccessibilityLabel("Фильтр: \(filter.title). Снять")
+        pill.setAccessibilityLabel(Lf("Remove filter: %@", filter.title))
         needsLayout = true
     }
 
@@ -1277,9 +1290,9 @@ final class ClipHistoryView: NSVisualEffectView, NSTableViewDataSource, NSTableV
         }
         refreshBadges()
         if store.items.isEmpty {
-            empty.stringValue = ClipMonitor.shared.paused ? "Запись на паузе" : "Скопируйте что-нибудь —\nоно появится здесь"
+            empty.stringValue = ClipMonitor.shared.paused ? L("Recording paused") : L("Copy something —\nit will appear here")
         } else if shown.isEmpty {
-            empty.stringValue = pinnedTab && q.isEmpty && f == .all ? "Закреплённых нет —\n⌘P закрепит выбранную запись" : "Ничего не найдено"
+            empty.stringValue = pinnedTab && q.isEmpty && f == .all ? L("No pinned items —\n⌘P pins the selected item") : L("No results")
         } else {
             empty.stringValue = ""
         }
@@ -1369,7 +1382,7 @@ final class ClipHistoryView: NSVisualEffectView, NSTableViewDataSource, NSTableV
     @objc private func keepPressed() {
         panel.keepOpen.toggle()
         keepB.active = panel.keepOpen
-        keepB.setSymbol(panel.keepOpen ? "lock.fill" : "lock.open", panel.keepOpen ? "Панель не прячется после вставки" : "Не прятать после вставки")
+        keepB.setSymbol(panel.keepOpen ? "lock.fill" : "lock.open", panel.keepOpen ? L("Stays open after pasting") : L("Keep open after pasting"))
     }
     @objc private func windowPressed() {
         panel.hide(returnFocus: false)
@@ -1393,10 +1406,10 @@ final class ClipHistoryView: NSVisualEffectView, NSTableViewDataSource, NSTableV
             add(f.title, f.symbol, on: filter == f) { [weak self] in self?.setFilter(f) }
         }
         menu.addItem(.separator())
-        add("Закреплённые", "pin", on: pinnedTab) { [weak self] in self?.setPinnedTab(!(self?.pinnedTab ?? false)) }
+        add(L("Pinned"), "pin", on: pinnedTab) { [weak self] in self?.setPinnedTab(!(self?.pinnedTab ?? false)) }
         menu.addItem(.separator())
-        add("Очистить историю…", "trash") { [weak self] in self?.confirmClear() }
-        add("Настройки…", "gearshape") { [weak self] in self?.settingsPressed() }
+        add(L("Clear History…"), "trash") { [weak self] in self?.confirmClear() }
+        add(L("Settings…"), "gearshape") { [weak self] in self?.settingsPressed() }
         menuOpen = true
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: moreB.bounds.height + 4), in: moreB)
         menuOpen = false
@@ -1404,11 +1417,11 @@ final class ClipHistoryView: NSVisualEffectView, NSTableViewDataSource, NSTableV
 
     private func confirmClear() {
         let a = NSAlert()
-        a.messageText = "Очистить историю?"
-        a.informativeText = "Удалятся все записи, кроме закреплённых. Вернуть их будет нельзя."
+        a.messageText = L("Clear clipboard history?")
+        a.informativeText = L("All items except pinned ones will be removed. This can’t be undone.")
         a.alertStyle = .warning
-        a.addButton(withTitle: "Очистить")
-        a.addButton(withTitle: "Отмена")
+        a.addButton(withTitle: L("Clear"))
+        a.addButton(withTitle: L("Cancel"))
         a.buttons.first?.hasDestructiveAction = true
         menuOpen = true
         NSApp.activate(ignoringOtherApps: true)
@@ -1418,7 +1431,7 @@ final class ClipHistoryView: NSVisualEffectView, NSTableViewDataSource, NSTableV
             store.clear(keepPinned: true)
             order = []
             reload()
-            note("История очищена")
+            note(L("History cleared"))
         }
         panel.makeKey()
     }
@@ -1613,11 +1626,11 @@ extension ClipHistoryView: NSMenuDelegate {
             m.image = NSImage(systemSymbolName: s, accessibilityDescription: nil)
             menu.addItem(m)
         }
-        add(many ? "Вставить по очереди (\(list.count))" : "Вставить", "arrow.down.doc") { [weak self] in self?.panel.paste(list, plain: false) }
-        add("Вставить как текст", "textformat") { [weak self] in self?.panel.paste(list, plain: true) }
-        add("Копировать", "doc.on.doc") { [weak self] in self?.panel.copy(list) }
+        add(many ? Lf("Paste in Sequence (%d)", list.count) : L("Paste"), "arrow.down.doc") { [weak self] in self?.panel.paste(list, plain: false) }
+        add(L("Paste as Plain Text"), "textformat") { [weak self] in self?.panel.paste(list, plain: true) }
+        add(L("Copy"), "doc.on.doc") { [weak self] in self?.panel.copy(list) }
         if !many {
-            add(clicked.pinned ? "Открепить" : "Закрепить", clicked.pinned ? "pin.slash" : "pin") { [weak self] in
+            add(clicked.pinned ? L("Unpin") : L("Pin"), clicked.pinned ? "pin.slash" : "pin") { [weak self] in
                 self?.store.setPinned(clicked.id, !clicked.pinned); self?.reload()
             }
         }
@@ -1625,28 +1638,28 @@ extension ClipHistoryView: NSMenuDelegate {
         let files = list.filter { $0.kind == .file || $0.kind == .image }
         if !texts.isEmpty || !files.isEmpty { menu.addItem(.separator()) }
         if !texts.isEmpty {
-            add("На текстовую полку", "text.badge.plus") { [weak self] in
+            add(L("Add to Text Shelf"), "text.badge.plus") { [weak self] in
                 TextShelfPanel.shared.add(texts.map { $0.text })
-                self?.note("Добавлено на текстовую полку")
+                self?.note(L("Added to Text Shelf"))
             }
         }
         if !files.isEmpty {
-            add("На полку", "tray.and.arrow.down") { [weak self] in
+            add(L("Add to Shelf"), "tray.and.arrow.down") { [weak self] in
                 guard let self else { return }
                 var items: [ShelfItem] = []
                 for it in files {
                     if it.kind == .file { items += it.files.map { ShelfItem(file: $0, temp: false) } }
                     else if let d = self.store.imageData(it) {
-                        let dst = ShelfStore.newDir().appendingPathComponent("Изображение \(ShelfStore.stamp()).png")
+                        let dst = ShelfStore.newDir().appendingPathComponent("\(L("Image")) \(ShelfStore.stamp()).png")
                         if (try? d.write(to: dst)) != nil { items.append(ShelfItem(file: dst, temp: true)) }
                     }
                 }
                 ShelfPanel.addToFrontmost(items, near: nil)
-                self.note("Добавлено на полку")
+                self.note(L("Added to Shelf"))
             }
         }
         menu.addItem(.separator())
-        add(many ? "Удалить из истории (\(list.count))" : "Удалить из истории", "trash") { [weak self] in
+        add(many ? Lf("Remove from History (%d)", list.count) : L("Remove from History"), "trash") { [weak self] in
             list.forEach { self?.store.remove($0.id) }
             self?.order = []
             self?.reload()
@@ -1700,8 +1713,8 @@ final class ClipRowView: NSTableCellView {
         badge.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
         badge.layer?.cornerRadius = 8
         badge.isHidden = true
-        badge.setAccessibilityLabel("Порядок вставки")
-        pinMark.image = NSImage(systemSymbolName: "pin.fill", accessibilityDescription: "Закреплено")
+        badge.setAccessibilityLabel(L("Paste order"))
+        pinMark.image = NSImage(systemSymbolName: "pin.fill", accessibilityDescription: L("Pinned item"))
         pinMark.contentTintColor = .secondaryLabelColor
         pinMark.symbolConfiguration = .init(pointSize: 10, weight: .semibold)
         time.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
@@ -1732,9 +1745,9 @@ final class ClipRowView: NSTableCellView {
         eye.target = self
         eye.action = #selector(eyePressed)
         moreButton.symbolConfiguration = .init(pointSize: 15, weight: .regular)
-        moreButton.image = NSImage(systemSymbolName: "ellipsis.circle", accessibilityDescription: "Действия")
-        moreButton.toolTip = "Действия"
-        moreButton.setAccessibilityLabel("Действия")
+        moreButton.image = NSImage(systemSymbolName: "ellipsis.circle", accessibilityDescription: L("Actions"))
+        moreButton.toolTip = L("Actions")
+        moreButton.setAccessibilityLabel(L("Actions"))
         moreButton.target = self
         moreButton.action = #selector(morePressed)
         [app, quick, badge, pinMark, time, icon, main, sub, eye, moreButton].forEach(addSubview)
@@ -1782,14 +1795,14 @@ final class ClipRowView: NSTableCellView {
             main.stringValue = masked ? "••••••••••" : it.text
             main.font = masked ? .systemFont(ofSize: 15, weight: .semibold) : .monospacedSystemFont(ofSize: 13, weight: .regular)
             main.maximumNumberOfLines = 1
-            sub.stringValue = "Пароль" + (it.sourceName.map { " · \($0)" } ?? "")
+            sub.stringValue = L("Password") + (it.sourceName.map { " · \($0)" } ?? "")
             sub.isHidden = false
         } else {
             switch it.kind {
             case .text:
                 main.stringValue = ClipRowView.preview(it.text)
             case .link:
-                icon.image = NSImage(systemSymbolName: "link", accessibilityDescription: "Ссылка")
+                icon.image = NSImage(systemSymbolName: "link", accessibilityDescription: L("Link"))
                 icon.contentTintColor = .secondaryLabelColor
                 icon.isHidden = false
                 main.stringValue = URL(string: it.text)?.host ?? it.title
@@ -1802,7 +1815,7 @@ final class ClipRowView: NSTableCellView {
                 icon.contentTintColor = img == nil ? .secondaryLabelColor : nil
                 imgAspect = it.h > 0 ? CGFloat(it.w) / CGFloat(it.h) : 1.6
                 icon.isHidden = false
-                main.stringValue = it.w > 0 ? "\(it.w)×\(it.h)" : "Изображение"
+                main.stringValue = it.w > 0 ? "\(it.w)×\(it.h)" : L("Image")
                 main.maximumNumberOfLines = 1
                 sub.stringValue = ByteCountFormatter.string(fromByteCount: Int64(it.bytes), countStyle: .file)
                 sub.isHidden = false
@@ -1816,7 +1829,7 @@ final class ClipRowView: NSTableCellView {
                 sub.isHidden = false
             }
         }
-        let tip = revealed ? "Скрыть" : "Показать"
+        let tip = revealed ? L("Hide password") : L("Show password")
         eye.image = NSImage(systemSymbolName: revealed ? "eye.slash" : "eye", accessibilityDescription: tip)
         eye.toolTip = tip
         eye.setAccessibilityLabel(tip)
@@ -1874,19 +1887,19 @@ final class ClipRowView: NSTableCellView {
 
     private static let dayFormatter: DateFormatter = {
         let f = DateFormatter()
-        f.locale = Locale(identifier: "ru_RU")
-        f.dateFormat = "d MMM"
+        f.locale = UILocale.current
+        f.dateFormat = UILocale.isRussian ? "d MMM" : "MMM d"
         return f
     }()
 
     static func relative(_ d: Date) -> String {
         let s = max(0, Date().timeIntervalSince(d))
-        if s < 5 { return "сейчас" }
-        if s < 60 { return "\(Int(s)) с" }
-        if s < 3600 { return "\(Int(s / 60)) мин" }
-        if s < 86400 { return "\(Int(s / 3600)) ч" }
-        if s < 2 * 86400 { return "вчера" }
-        if s < 7 * 86400 { return "\(Int(s / 86400)) дн" }
+        if s < 5 { return L("now") }
+        if s < 60 { return Lf("%ds", Int(s)) }
+        if s < 3600 { return Lf("%dm", Int(s / 60)) }
+        if s < 86400 { return Lf("%dh", Int(s / 3600)) }
+        if s < 2 * 86400 { return L("Yesterday") }
+        if s < 7 * 86400 { return Lf("%dd", Int(s / 86400)) }
         return dayFormatter.string(from: d)
     }
 }

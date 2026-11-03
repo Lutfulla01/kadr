@@ -36,8 +36,8 @@ enum SequentialPaster {
         switch s {
         case "tab": return "Tab"
         case "enter": return "Enter"
-        case "newline": return "Перевод строки"
-        default: return "Ничего"
+        case "newline": return L("Line Break")
+        default: return L("None")
         }
     }
 

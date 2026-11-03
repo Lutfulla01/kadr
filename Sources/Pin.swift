@@ -35,7 +35,7 @@ final class PinWindow: NSWindow {
         isReleasedWhenClosed = false
         isRestorable = false
         setAccessibilityIdentifier("kadr.pin")
-        setAccessibilityTitle("Закреплённый снимок")
+        setAccessibilityTitle(L("Pinned Screenshot"))
         level = .floating
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         isMovableByWindowBackground = true
@@ -83,7 +83,7 @@ final class PinWindow: NSWindow {
 
     func copyImage() {
         ImageFiles.copyToClipboard(image, pxPerPt: pxPerPt)
-        HUD.show("Скопировано", symbol: "doc.on.doc")
+        HUD.show(L("Copied"), symbol: "doc.on.doc")
     }
 
     func toShelf() {
@@ -98,7 +98,7 @@ final class PinWindow: NSWindow {
         panel.directoryURL = Prefs.saveFolder
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd 'в' HH.mm.ss"
+        f.dateFormat = L("yyyy-MM-dd 'at' HH.mm.ss")
         panel.nameFieldStringValue = "Kadr \(f.string(from: Date())).png"
         NSApp.activate(ignoringOtherApps: true)
         if panel.runModal() == .OK, let url = panel.url {
@@ -150,17 +150,17 @@ final class PinView: NSView {
     override func menu(for event: NSEvent) -> NSMenu? {
         let m = NSMenu()
         let items: [(String, String, Selector)] = [
-            ("Копировать", "doc.on.doc", #selector(copyAction)),
-            ("Сохранить…", "square.and.arrow.down", #selector(saveAction)),
-            ("На полку", "tray.and.arrow.down", #selector(shelfAction)),
-            ("Закрыть", "xmark", #selector(closeAction)),
+            (L("Copy"), "doc.on.doc", #selector(copyAction)),
+            (L("Save…"), "square.and.arrow.down", #selector(saveAction)),
+            (L("Add to Shelf"), "tray.and.arrow.down", #selector(shelfAction)),
+            (L("Close"), "xmark", #selector(closeAction)),
         ]
         for (t, s, sel) in items {
             let it = NSMenuItem(title: t, action: sel, keyEquivalent: "")
             it.target = self
             it.image = NSImage(systemSymbolName: s, accessibilityDescription: nil)
             m.addItem(it)
-            if t == "На полку" { m.addItem(.separator()) }
+            if sel == #selector(shelfAction) { m.addItem(.separator()) }
         }
         return m
     }

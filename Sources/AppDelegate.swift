@@ -7,11 +7,11 @@ enum AppActions {
     static func deliverOCR(_ text: String) {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if t.isEmpty {
-            HUD.show("Текст не найден", symbol: "text.magnifyingglass")
+            HUD.show(L("No Text Found"), symbol: "text.magnifyingglass")
             return
         }
         ImageFiles.copyText(t)
-        if Prefs.showHUD { HUD.show("Текст скопирован", symbol: "doc.on.clipboard") }
+        if Prefs.showHUD { HUD.show(L("Text Copied"), symbol: "doc.on.clipboard") }
     }
 }
 
@@ -68,7 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let img = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Kadr")
             img?.isTemplate = true
             b.image = img
-            b.toolTip = Profile.name.map { "Kadr — профиль \($0)" } ?? "Kadr — снимки экрана"
+            b.toolTip = Profile.name.map { Lf("Kadr — profile %@", $0) } ?? L("Kadr — screenshots")
             b.setAccessibilityIdentifier("kadr.statusItem")
         }
         applyStatusItemVisibility()
@@ -113,6 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         ShakeMonitor.shared.start()
         ClipMonitor.shared.start()
+        CopySound.preload()
         EdgeTrigger.shared.start()
         GestureTrigger.shared.start()
         // Проверка жеста без тачпада — только у тестового профиля: тот же путь решения и переключения.
@@ -169,19 +170,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let main = NSMenu()
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "Выйти из Kadr", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: L("Quit Kadr"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         main.addItem(appItem)
         let editItem = NSMenuItem()
-        let edit = NSMenu(title: "Правка")
-        edit.addItem(withTitle: "Отменить", action: Selector(("undo:")), keyEquivalent: "z")
-        let redo = edit.addItem(withTitle: "Повторить", action: Selector(("redo:")), keyEquivalent: "z")
+        let edit = NSMenu(title: L("Edit"))
+        edit.addItem(withTitle: L("Undo"), action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = edit.addItem(withTitle: L("Redo"), action: Selector(("redo:")), keyEquivalent: "z")
         redo.keyEquivalentModifierMask = [.command, .shift]
         edit.addItem(.separator())
-        edit.addItem(withTitle: "Вырезать", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
-        edit.addItem(withTitle: "Копировать", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        edit.addItem(withTitle: "Вставить", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        edit.addItem(withTitle: "Выбрать все", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edit.addItem(withTitle: L("Cut"), action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: L("Copy"), action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: L("Paste"), action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: L("Select All"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = edit
         main.addItem(editItem)
         NSApp.mainMenu = main
@@ -200,7 +201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             menu.addItem(it)
         }
-        menu.addItem(item("Запись экрана", symbol: "record.circle", action: #selector(openRecording)))
+        menu.addItem(item(L("Record Screen…"), symbol: "record.circle", action: #selector(openRecording)))
         menu.addItem(.separator())
         let shelf = item(HotkeyAction.shelf.title, symbol: HotkeyAction.shelf.symbol, action: #selector(newShelf))
         if let spec = Prefs.hotkey(.shelf), !spec.menuKeyEquivalent.isEmpty {
@@ -214,7 +215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             textShelf.keyEquivalentModifierMask = spec.modifiers
         }
         menu.addItem(textShelf)
-        menu.addItem(item("Текст с экрана на текстовую полку", symbol: "text.viewfinder", action: #selector(ocrToTextShelf)))
+        menu.addItem(item(L("Capture Text to Text Shelf"), symbol: "text.viewfinder", action: #selector(ocrToTextShelf)))
         menu.addItem(.separator())
         let clip = item(HotkeyAction.clipboard.title, symbol: HotkeyAction.clipboard.symbol, action: #selector(toggleClipHistory))
         if let spec = Prefs.hotkey(.clipboard), !spec.menuKeyEquivalent.isEmpty {
@@ -222,18 +223,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             clip.keyEquivalentModifierMask = spec.modifiers
         }
         menu.addItem(clip)
-        let pause = item("Пауза записи", symbol: "pause.circle", action: #selector(toggleClipPause))
+        let pause = item(L("Pause Clipboard History"), symbol: "pause.circle", action: #selector(toggleClipPause))
         pause.state = ClipMonitor.shared.paused ? .on : .off
         menu.addItem(pause)
         menu.addItem(.separator())
 
-        let histItem = item("История", symbol: "clock.arrow.circlepath", action: nil)
+        let histItem = item(L("Recent Captures"), symbol: "clock.arrow.circlepath", action: nil)
         let hist = NSMenu()
         hist.autoenablesItems = false
         let files = Prefs.history.map { URL(fileURLWithPath: $0) }
             .filter { FileManager.default.fileExists(atPath: $0.path) }
         if files.isEmpty {
-            let empty = NSMenuItem(title: "Пока пусто", action: nil, keyEquivalent: "")
+            let empty = NSMenuItem(title: L("No Captures Yet"), action: nil, keyEquivalent: "")
             empty.isEnabled = false
             hist.addItem(empty)
         } else {
@@ -247,16 +248,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 hist.addItem(it)
             }
             hist.addItem(.separator())
-            hist.addItem(item("Очистить историю", symbol: "trash", action: #selector(clearHistory)))
+            hist.addItem(item(L("Clear History"), symbol: "trash", action: #selector(clearHistory)))
         }
         histItem.submenu = hist
         menu.addItem(histItem)
-        menu.addItem(item("Открыть папку", symbol: "folder", action: #selector(openFolder)))
+        menu.addItem(item(L("Open Screenshots Folder"), symbol: "folder", action: #selector(openFolder)))
         menu.addItem(.separator())
-        let settings = item("Настройки…", symbol: "gearshape", action: #selector(openSettings))
+        let settings = item(L("Settings…"), symbol: "gearshape", action: #selector(openSettings))
         settings.keyEquivalent = ","
         menu.addItem(settings)
-        let quit = item("Выйти", symbol: "power", action: #selector(quit))
+        let quit = item(L("Quit Kadr"), symbol: "power", action: #selector(quit))
         quit.keyEquivalent = "q"
         menu.addItem(quit)
     }
@@ -355,7 +356,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         let rows = Prefs.keepTableRows
-        HUD.show("Распознаю…", symbol: "text.viewfinder", sticky: true)
+        HUD.show(L("Recognizing Text…"), symbol: "text.viewfinder", sticky: true)
         let t0 = Date()
         DispatchQueue.global(qos: .userInitiated).async {
             let text = OCR.recognize(img.cg, keepRows: rows)
@@ -378,8 +379,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ImageFiles.copyToClipboard(img.cg, pxPerPt: img.pxPerPt)
         guard let saved = CaptureService.save(temp: tmp) else {
             let a = NSAlert()
-            a.messageText = "Не удалось сохранить снимок"
-            a.informativeText = "Снимок уже в буфере обмена. Проверьте папку сохранения в настройках: \(Prefs.saveFolder.path)"
+            a.messageText = L("Couldn’t Save Screenshot")
+            a.informativeText = Lf("The screenshot is already on the clipboard. Check the save folder in Settings: %@", Prefs.saveFolder.path)
             NSApp.activate(ignoringOtherApps: true)
             a.runModal()
             return
@@ -406,10 +407,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         defer { permissionAlertShown = false }
         let a = NSAlert()
         a.alertStyle = .informational
-        a.messageText = "Kadr нужно разрешение «Запись экрана»"
-        a.informativeText = "Откройте Системные настройки → Конфиденциальность и безопасность → Запись экрана и системного звука, включите Kadr, затем перезапустите Kadr."
-        a.addButton(withTitle: "Открыть настройки")
-        a.addButton(withTitle: "Не сейчас")
+        a.messageText = L("Kadr Needs Screen Recording Permission")
+        a.informativeText = L("Open System Settings → Privacy & Security → Screen & System Audio Recording, turn on Kadr, then restart Kadr.")
+        a.addButton(withTitle: L("Open System Settings"))
+        a.addButton(withTitle: L("Not Now"))
         NSApp.activate(ignoringOtherApps: true)
         if a.runModal() == .alertFirstButtonReturn,
            let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {

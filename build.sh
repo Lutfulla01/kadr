@@ -25,6 +25,11 @@ if [[ ! -f Resources/Kadr.icns || tools/make_icon.swift -nt Resources/Kadr.icns 
   swiftc -O tools/make_icon.swift -o build/make_icon
   build/make_icon Resources/Kadr.icns
 fi
+if [[ ! -f Resources/tick.caf || tools/make_tick.swift -nt Resources/tick.caf ]]; then
+  echo "→ звук копирования"
+  swiftc -swift-version 5 -O tools/make_tick.swift -o build/make_tick
+  build/make_tick Resources/tick.caf
+fi
 
 echo "→ компиляция (arm64 + x86_64)"
 pids=()
@@ -47,9 +52,12 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp build/Kadr "$APP/Contents/MacOS/Kadr"
 cp Info.plist "$APP/Contents/Info.plist"
 cp Resources/Kadr.icns "$APP/Contents/Resources/Kadr.icns"
+cp Resources/tick.caf "$APP/Contents/Resources/tick.caf"
 # Русская локализация: системные строки (размеры файлов, панели сохранения, «Поделиться») — по-русски.
-mkdir -p "$APP/Contents/Resources/ru.lproj"
-printf '"CFBundleDisplayName" = "Kadr";\n' > "$APP/Contents/Resources/ru.lproj/InfoPlist.strings"
+# Локализации: английский (язык разработки) и русский; системные строки (панели сохранения, «Поделиться»)
+# тоже идут на языке интерфейса.
+for f in Resources/*.lproj/*.strings; do plutil -lint -s "$f" || { echo "ОШИБКА в $f"; exit 1; }; done
+cp -R Resources/en.lproj Resources/ru.lproj "$APP/Contents/Resources/"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 if [[ "$IDENTITY" == "-" ]]; then
@@ -80,7 +88,7 @@ if [[ "$MODE" == "dmg" ]]; then
   mkdir -p "$STAGE/.background" dist
   ditto "$APP" "$STAGE/Kadr.app"
   ln -s /Applications "$STAGE/Applications"
-  cp "Resources/dmg/Как открыть.txt" "$STAGE/"
+  cp "Resources/dmg/How to open.txt" "Resources/dmg/Как открыть.txt" "$STAGE/"
   if [[ ! -x build/make_dmg_bg || tools/make_dmg_bg.swift -nt build/make_dmg_bg ]]; then
     swiftc -O tools/make_dmg_bg.swift -o build/make_dmg_bg
   fi
@@ -114,7 +122,8 @@ tell application "Finder"
     set background picture of opts to file ".background:background.tiff"
     set position of item "Kadr.app" of container window to {170, 220}
     set position of item "Applications" of container window to {470, 220}
-    set position of item "Как открыть.txt" of container window to {320, 360}
+    set position of item "How to open.txt" of container window to {240, 360}
+    set position of item "Как открыть.txt" of container window to {400, 360}
     update without registering applications
     delay 1
     close

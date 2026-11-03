@@ -38,8 +38,8 @@ final class ShelfItem {
 
     var detail: String {
         if kind == .link { return url.host ?? url.absoluteString }
-        if isDirectory { return "Папка" }
-        return ByteCountFormatter.string(fromByteCount: byteSize, countStyle: .file)
+        if isDirectory { return L("Folder") }
+        return byteSize.formatted(.byteCount(style: .file).locale(UILocale.current))
     }
 
     /// Что кладётся в буфер перетаскивания: ссылка на файл (+ текст для текстовых заметок) или веб-ссылка.
@@ -106,7 +106,7 @@ enum ShelfStore {
     static func stamp() -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd 'в' HH.mm.ss"
+        f.dateFormat = L("yyyy-MM-dd 'at' HH.mm.ss")
         return f.string(from: Date())
     }
 
@@ -155,19 +155,19 @@ enum ShelfStore {
             }
             return true
         }
-        if let png = pb.data(forType: .png), let url = write(png, name: "Изображение \(stamp()).png") {
+        if let png = pb.data(forType: .png), let url = write(png, name: "\(L("Image")) \(stamp()).png") {
             add([ShelfItem(file: url, temp: true)])
             return true
         }
         if let jpg = pb.data(forType: NSPasteboard.PasteboardType("public.jpeg")),
-           let url = write(jpg, name: "Изображение \(stamp()).jpg") {
+           let url = write(jpg, name: "\(L("Image")) \(stamp()).jpg") {
             add([ShelfItem(file: url, temp: true)])
             return true
         }
         if let img = (pb.readObjects(forClasses: [NSImage.self]) as? [NSImage])?.first,
            let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
            let png = rep.representation(using: .png, properties: [:]),
-           let url = write(png, name: "Изображение \(stamp()).png") {
+           let url = write(png, name: "\(L("Image")) \(stamp()).png") {
             add([ShelfItem(file: url, temp: true)])
             return true
         }
@@ -185,9 +185,9 @@ enum ShelfStore {
                 add([ShelfItem(link: u, title: nil)])
                 return true
             }
-            let firstLine = s.split(separator: "\n").first.map(String.init) ?? "Текст"
+            let firstLine = s.split(separator: "\n").first.map(String.init) ?? L("Text")
             var name = sanitize(firstLine)
-            if name.isEmpty { name = "Текст \(stamp())" }
+            if name.isEmpty { name = "\(L("Text")) \(stamp())" }
             if let url = write(Data(s.utf8), name: name + ".txt") {
                 add([ShelfItem(file: url, temp: true)])
                 return true
@@ -262,7 +262,7 @@ final class ShelfPanel: NSPanel {
         isReleasedWhenClosed = false
         isRestorable = false
         setAccessibilityIdentifier("kadr.shelf")
-        setAccessibilityTitle("Полка")
+        setAccessibilityTitle(L("Shelf"))
         hasShadow = true
         isOpaque = false
         backgroundColor = .clear
@@ -376,7 +376,7 @@ final class ShelfPanel: NSPanel {
                 pb.setString(it.url.absoluteString, forType: .string)
             }
         }
-        HUD.show("Скопировано", symbol: "doc.on.doc")
+        HUD.show(L("Copied"), symbol: "doc.on.doc")
     }
 
     func share(from view: NSView, rect: NSRect? = nil) {
@@ -431,7 +431,7 @@ final class ShelfView: NSVisualEffectView {
     init(panel: ShelfPanel) {
         self.panel = panel
         stack = ShelfStackView(panel: panel)
-        backButton = BarButton(symbol: "chevron.left", tip: "Свернуть (Esc)")
+        backButton = BarButton(symbol: "chevron.left", tip: L("Collapse (Esc)"))
         super.init(frame: NSRect(origin: .zero, size: ShelfPanel.collapsedSize))
         material = .popover
         blendingMode = .behindWindow
@@ -466,13 +466,13 @@ final class ShelfView: NSVisualEffectView {
         addSubview(scroll)
 
         let actions: [(String, String, (ShelfPanel) -> Void)] = [
-            ("arrow.up.forward.app", "Открыть (Пробел)", { $0.openItems() }),
-            ("folder", "Показать в Finder", { $0.revealItems() }),
-            ("doc.on.doc", "Копировать (⌘C)", { $0.copyItems() }),
-            ("square.and.arrow.up", "Поделиться", { _ in }),
-            ("minus.circle", "Убрать элемент (Delete)", { $0.removeItem() }),
-            ("trash", "Очистить полку", { $0.clearAll() }),
-            ("xmark", "Закрыть (Esc)", { $0.close() }),
+            ("arrow.up.forward.app", L("Open (Space)"), { $0.openItems() }),
+            ("folder", L("Show in Finder"), { $0.revealItems() }),
+            ("doc.on.doc", L("Copy (⌘C)"), { $0.copyItems() }),
+            ("square.and.arrow.up", L("Share"), { _ in }),
+            ("minus.circle", L("Remove Item (Delete)"), { $0.removeItem() }),
+            ("trash", L("Clear Shelf"), { $0.clearAll() }),
+            ("xmark", L("Close (Esc)"), { $0.close() }),
         ]
         bar.orientation = .horizontal
         bar.spacing = 2
@@ -517,18 +517,18 @@ final class ShelfView: NSVisualEffectView {
     func reload() {
         let items = panel.items
         if items.isEmpty {
-            caption.stringValue = "Пустая полка"
-            subcaption.stringValue = "файлы, картинки, текст, ссылки"
+            caption.stringValue = L("Empty Shelf")
+            subcaption.stringValue = L("files, images, text, links")
         } else if items.count == 1, let it = items.first {
             caption.stringValue = it.title
             subcaption.stringValue = it.detail
         } else {
             let allFiles = items.allSatisfy { $0.kind == .file }
-            let noun = allFiles ? russianPlural(items.count, "файл", "файла", "файлов")
-                                : russianPlural(items.count, "элемент", "элемента", "элементов")
+            let noun = allFiles ? Lp(items.count, "file", "files")
+                                : Lp(items.count, "shelf item", "items")  // n ≥ 2 here; own key so it does not clash with ClipHistory's "item" (history entries)
             caption.stringValue = "\(items.count) \(noun)"
             let total = items.filter { $0.kind == .file && !$0.isDirectory }.reduce(Int64(0)) { $0 + $1.byteSize }
-            subcaption.stringValue = total > 0 ? ByteCountFormatter.string(fromByteCount: total, countStyle: .file) : ""
+            subcaption.stringValue = total > 0 ? total.formatted(.byteCount(style: .file).locale(UILocale.current)) : ""
         }
         headerTitle.stringValue = caption.stringValue
         stack.needsDisplay = true
@@ -594,26 +594,26 @@ final class ShelfView: NSVisualEffectView {
     override func menu(for event: NSEvent) -> NSMenu? {
         let m = NSMenu()
         guard !panel.items.isEmpty else {
-            m.addItem(menuItem("Закрыть", "xmark") { $0.close() })
+            m.addItem(menuItem(L("Close"), "xmark") { $0.close() })
             return m
         }
-        m.addItem(menuItem("Открыть", "arrow.up.forward.app") { $0.openItems() })
-        m.addItem(menuItem("Показать в Finder", "folder") { $0.revealItems() })
-        m.addItem(menuItem("Копировать", "doc.on.doc") { $0.copyItems() })
+        m.addItem(menuItem(L("Open"), "arrow.up.forward.app") { $0.openItems() })
+        m.addItem(menuItem(L("Show in Finder"), "folder") { $0.revealItems() })
+        m.addItem(menuItem(L("Copy"), "doc.on.doc") { $0.copyItems() })
         let share = NSSharingServicePicker(items: panel.targets.map { $0.url }).standardShareMenuItem
         m.addItem(share)
         m.addItem(.separator())
-        m.addItem(menuItem("Убрать элемент", "minus.circle") { $0.removeItem() })
-        m.addItem(menuItem("Очистить полку", "trash") { $0.clearAll() })
+        m.addItem(menuItem(L("Remove Item"), "minus.circle") { $0.removeItem() })
+        m.addItem(menuItem(L("Clear Shelf"), "trash") { $0.clearAll() })
         m.addItem(.separator())
         if panel.items.count > 1 {
             if panel.expanded {
-                m.addItem(menuItem("Свернуть", "rectangle.compress.vertical") { $0.setExpanded(false) })
+                m.addItem(menuItem(L("Collapse"), "rectangle.compress.vertical") { $0.setExpanded(false) })
             } else {
-                m.addItem(menuItem("Развернуть список", "list.bullet") { $0.setExpanded(true) })
+                m.addItem(menuItem(L("Expand List"), "list.bullet") { $0.setExpanded(true) })
             }
         }
-        m.addItem(menuItem("Закрыть", "xmark") { $0.close() })
+        m.addItem(menuItem(L("Close"), "xmark") { $0.close() })
         return m
     }
 
@@ -733,7 +733,7 @@ final class ShelfStackView: NSView {
             }
             let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11, weight: .medium),
                                                         .foregroundColor: NSColor.secondaryLabelColor]
-            let t = "Перетащите сюда" as NSString
+            let t = L("Drop here") as NSString
             let ts = t.size(withAttributes: attrs)
             t.draw(at: NSPoint(x: c.x - ts.width / 2, y: c.y + 20), withAttributes: attrs)
             return

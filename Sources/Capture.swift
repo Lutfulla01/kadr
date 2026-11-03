@@ -199,7 +199,7 @@ final class CaptureService {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd 'в' HH.mm.ss"
+        f.dateFormat = L("yyyy-MM-dd 'at' HH.mm.ss")
         let ext = Prefs.format == "jpeg" ? "jpg" : "png"
         let base = "Kadr \(f.string(from: Date()))"
         var url = folder.appendingPathComponent("\(base).\(ext)")

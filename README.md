@@ -48,10 +48,11 @@ Kadr не ходит в сеть: в нём нет телеметрии, про�
   - если выделения нет, сбоку выезжает панель истории;
   - тот же жест прячет панель.
 - **Панель у края экрана:** история по упору курсора в край. По желанию, по умолчанию выключена.
+- **Звук при копировании:** короткий мягкий «тик», свой синтезированный; выключается и регулируется в настройках.
 - **Локальное шифрование.** История зашифрована на диске, пароли в списке скрыты точками.
 - **Никакой сети** — ни одного сетевого вызова в коде.
 
-Интерфейс на русском. Нужна macOS 14 Sonoma или новее, Apple Silicon или Intel.
+Интерфейс на английском и русском, по языку системы (или выбрать в настройках). Нужна macOS 14 Sonoma или новее, Apple Silicon или Intel.
 
 ## Сочетания по умолчанию
 
@@ -203,12 +204,14 @@ Kadr не меняет системные настройки и не трога�
 | `Sources/ClipHistory.swift` | история буфера: запись, шифрованное хранилище, панель с карточками |
 | `Sources/EdgePanel.swift` | вызов панели истории упором курсора в край экрана |
 | `Sources/Gesture.swift` | нажатие тачпада тремя пальцами (MultitouchSupport + event tap), копирование выделения |
+| `Sources/Sound.swift` | звук копирования: готовый буфер, AVAudioEngine, не чаще раза в 120 мс |
 | `Sources/Hotkeys.swift` | глобальные сочетания через Carbon `RegisterEventHotKey` |
 | `Sources/Prefs.swift` | настройки (UserDefaults) и описание сочетаний |
 | `Sources/SettingsUI.swift` | окно настроек (SwiftUI) |
 | `Sources/Profile.swift` | изолированный тестовый профиль, вставка по очереди |
 | `Sources/StateDump.swift` | сводка состояния профиля в JSON для проверок |
 | `tools/make_icon.swift` | рисует иконку и собирает `Resources/Kadr.icns` |
+| `tools/make_tick.swift` | синтезирует звук копирования `Resources/tick.caf` |
 | `tools/make_dmg_bg.swift` | рисует фон окна образа |
 | `Resources/dmg/Как открыть.txt` | короткая инструкция, которая кладётся в образ |
 | `build.sh` | сборка, подпись, установка, образ |
@@ -267,7 +270,7 @@ KADR_PROFILE=t $K --profile-reset        # удалить данные, ключ
 Kadr is a macOS menu-bar utility for screenshots with an annotation editor. You can pin a screenshot above other
 windows or run OCR on it. Kadr also has a drag-and-drop file shelf, a text-snippet shelf and an encrypted clipboard
 history that opens with a three-finger trackpad press. It makes no network connections at all: no telemetry,
-no update checks, no accounts. The UI is in Russian. Requires macOS 14+ on Apple Silicon or Intel.
+no update checks, no accounts. English and Russian UI (follows system language, or pick one in Settings). Requires macOS 14+ on Apple Silicon or Intel.
 
 [Watch the 43-second video (MP4)](https://github.com/Lutfulla01/kadr/releases/download/v1.4/kadr-promo-16x9.mp4)
 
@@ -283,6 +286,7 @@ no update checks, no accounts. The UI is in Russian. Requires macOS 14+ on Apple
   ⌘1–⌘9 paste card N. Select several cards and press ↩ to paste them separated by Tab, e.g. login and password.
 - Three-finger trackpad press: copies the selected text if there is a selection, otherwise toggles the history panel.
   The screen-edge panel is optional and off by default.
+- A soft synthesized tick on every new copy (can be turned off, volume in Settings).
 - History is encrypted on disk with AES-GCM; the key is kept in the login Keychain. Passwords are masked in the list.
 
 **Default hotkeys:**

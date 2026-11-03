@@ -13,6 +13,7 @@
 //   KADR_PROFILE=<имя> Kadr --clip-render out.png [--multi] — нарисовать окно истории в файл (без показа)
 import AppKit
 import ServiceManagement
+import SwiftUI
 
 func fail(_ msg: String) -> Never {
     FileHandle.standardError.write((msg + "\n").data(using: .utf8)!)
@@ -220,6 +221,27 @@ if let i = args.firstIndex(of: "--clip-perf") {
     exit(0)
 }
 
+// Окно настроек без показа на экране: рисуется в файл (только для тестового профиля, проверка перевода).
+if let i = args.firstIndex(of: "--settings-render"), i + 1 < args.count {
+    guard Profile.name != nil else { fail("нужен KADR_PROFILE=<имя>") }
+    app.setActivationPolicy(.prohibited)
+    if let a = ProcessInfo.processInfo.environment["KADR_APPEARANCE"] { app.appearance = NSAppearance(named: a == "light" ? .aqua : .darkAqua) }
+    let recs = HotkeyAction.allCases.map { HotkeyRecorderModel(action: $0) }
+    let host = NSHostingView(rootView: SettingsView(recorders: recs))
+    let fit = host.fittingSize
+    let size = NSSize(width: max(fit.width, 560), height: 2700)
+    let win = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+    win.contentView = host
+    host.frame = NSRect(origin: .zero, size: size)
+    host.layoutSubtreeIfNeeded()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+    let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+    host.cacheDisplay(in: host.bounds, to: rep)
+    try? rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: args[i + 1]))
+    print("настройки: \(Int(size.width))×\(Int(size.height)) → \(args[i + 1])")
+    exit(0)
+}
+
 // Окно истории без показа на экране: раскладка рисуется в файл (только для тестового профиля).
 if let i = args.firstIndex(of: "--clip-render"), i + 1 < args.count {
     guard Profile.name != nil else { fail("нужен KADR_PROFILE=<имя>") }
@@ -233,11 +255,11 @@ if let i = args.firstIndex(of: "--clip-render"), i + 1 < args.count {
     put("com.apple.finder", "Finder") { pb.writeObjects([URL(fileURLWithPath: "/Applications/Kadr.app") as NSURL]) }
     let img = NSImage(size: NSSize(width: 320, height: 200), flipped: false) { r in
         NSColor.systemTeal.setFill(); r.fill(); NSColor.white.setFill(); NSRect(x: 40, y: 40, width: 120, height: 80).fill(); return true }
-    put("com.apple.Preview", "Просмотр") { pb.setData(NSBitmapImageRep(data: img.tiffRepresentation!)!.representation(using: .png, properties: [:])!, forType: .png) }
+    put("com.apple.Preview", UILocale.isRussian ? "Просмотр" : "Preview") { pb.setData(NSBitmapImageRep(data: img.tiffRepresentation!)!.representation(using: .png, properties: [:])!, forType: .png) }
     put("com.apple.Safari", "Safari") { pb.setString("https://example.com/katalog", forType: .string) }
-    put("com.apple.Passwords", "Пароли") { pb.setString("секретный-пароль", forType: .string); pb.setData(Data(), forType: .concealed) }
+    put("com.apple.Passwords", L("Passwords")) { pb.setString("secret-password", forType: .string); pb.setData(Data(), forType: .concealed) }
     put("com.apple.Safari", "Safari") { pb.setString("ivan@example.com", forType: .string) }
-    put("com.apple.TextEdit", "TextEdit") { pb.setString("Встреча в 15:00\nобсудить запуск и цены", forType: .string) }
+    put("com.apple.TextEdit", "TextEdit") { pb.setString(UILocale.isRussian ? "Встреча в 15:00\nобсудить запуск и цены" : "Meeting at 3 pm\ndiscuss launch and pricing", forType: .string) }
     pb.releaseGlobally()
     if let first = store.items.last { store.setPinned(first.id, true) }
     let view = ClipHistoryPanel.shared.view!

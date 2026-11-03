@@ -109,7 +109,7 @@ final class EditorController: NSWindowController, NSWindowDelegate {
         }
         guard let img = ImageFiles.load(url) else {
             let a = NSAlert()
-            a.messageText = "Не удалось открыть снимок"
+            a.messageText = L("Couldn't open the screenshot")
             a.informativeText = url.path
             a.runModal()
             return nil
@@ -182,31 +182,31 @@ final class EditorController: NSWindowController, NSWindowDelegate {
         }
         items.append(BarSeparator())
         for (i, d) in [CGFloat(4), 7, 11].enumerated() {
-            let w = WidthButton(dot: d, tip: "\(Palette.widthNames[i]) линия, размер текста")
+            let w = WidthButton(dot: d, tip: Palette.widthTips[i])
             w.onClick = { [weak self] in self?.widthIndex = i }
             widthButtons.append(w)
             items.append(w)
         }
         items.append(BarSeparator())
-        undoButton = BarButton(symbol: "arrow.uturn.backward", tip: "Отменить (⌘Z)")
+        undoButton = BarButton(symbol: "arrow.uturn.backward", tip: L("Undo (⌘Z)"))
         undoButton.onClick = { [weak self] in self?.undo() }
-        redoButton = BarButton(symbol: "arrow.uturn.forward", tip: "Повторить (⌘⇧Z)")
+        redoButton = BarButton(symbol: "arrow.uturn.forward", tip: L("Redo (⌘⇧Z)"))
         redoButton.onClick = { [weak self] in self?.redo() }
         items += [undoButton, redoButton, BarSeparator()]
 
-        let ocr = BarButton(symbol: "text.viewfinder", tip: "Скопировать текст со снимка (T)")
+        let ocr = BarButton(symbol: "text.viewfinder", tip: L("Copy Text from Screenshot (T)"))
         ocr.onClick = { [weak self] in self?.runOCR() }
-        let shelf = BarButton(symbol: "tray.and.arrow.down", tip: "На полку (⌘D)")
+        let shelf = BarButton(symbol: "tray.and.arrow.down", tip: L("To Shelf (⌘D)"))
         shelf.onClick = { [weak self] in self?.toShelf() }
-        let pin = BarButton(symbol: "pin", tip: "Закрепить поверх окон (P)")
+        let pin = BarButton(symbol: "pin", tip: L("Pin on Top (P)"))
         pin.onClick = { [weak self] in self?.pin() }
-        let saveAs = BarButton(symbol: "square.and.arrow.down.on.square", tip: "Сохранить как… (⌘⇧S)")
+        let saveAs = BarButton(symbol: "square.and.arrow.down.on.square", tip: L("Save As… (⌘⇧S)"))
         saveAs.onClick = { [weak self] in self?.saveAs() }
-        let save = BarButton(symbol: "square.and.arrow.down", tip: "Сохранить в файл снимка (⌘S)")
+        let save = BarButton(symbol: "square.and.arrow.down", tip: L("Save to Screenshot File (⌘S)"))
         save.onClick = { [weak self] in self?.save() }
-        let close = BarButton(symbol: "xmark", tip: "Закрыть (Esc)")
+        let close = BarButton(symbol: "xmark", tip: L("Close (Esc)"))
         close.onClick = { [weak self] in self?.window?.performClose(nil) }
-        let copy = BarButton(symbol: "doc.on.doc", tip: "Скопировать и закрыть (⌘C, ⌘↩)", title: "Копировать", prominent: true)
+        let copy = BarButton(symbol: "doc.on.doc", tip: L("Copy and Close (⌘C, ⌘↩)"), title: L("Copy"), prominent: true)
         copy.onClick = { [weak self] in self?.copyAndClose() }
         items += [ocr, shelf, pin, saveAs, save, BarSeparator(), close, copy]
 
@@ -354,9 +354,9 @@ final class EditorController: NSWindowController, NSWindowDelegate {
     func save() {
         guard let img = flattened() else { return }
         if ImageFiles.write(img, to: fileURL, pxPerPt: k) {
-            HUD.show("Сохранено", symbol: "square.and.arrow.down")
+            HUD.show(L("Saved"), symbol: "square.and.arrow.down")
         } else {
-            showError("Не удалось сохранить файл", fileURL.path)
+            showError(L("Couldn't save the file"), fileURL.path)
         }
     }
 
@@ -365,14 +365,14 @@ final class EditorController: NSWindowController, NSWindowDelegate {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png, .jpeg]
         panel.directoryURL = fileURL.deletingLastPathComponent()
-        panel.nameFieldStringValue = fileURL.deletingPathExtension().lastPathComponent + " — правка." + fileURL.pathExtension
+        panel.nameFieldStringValue = Lf("%@ — edited", fileURL.deletingPathExtension().lastPathComponent) + "." + fileURL.pathExtension
         panel.canCreateDirectories = true
         panel.beginSheetModal(for: win) { [weak self] resp in
             guard let self, resp == .OK, let url = panel.url else { return }
             if ImageFiles.write(img, to: url, pxPerPt: self.k) {
-                HUD.show("Сохранено", symbol: "square.and.arrow.down")
+                HUD.show(L("Saved"), symbol: "square.and.arrow.down")
             } else {
-                self.showError("Не удалось сохранить файл", url.path)
+                self.showError(L("Couldn't save the file"), url.path)
             }
         }
     }
@@ -382,7 +382,7 @@ final class EditorController: NSWindowController, NSWindowDelegate {
         guard let img = flattened() else { return }
         let name = fileURL.deletingPathExtension().lastPathComponent + ".png"
         let url = ShelfStore.newDir().appendingPathComponent(name)
-        guard ImageFiles.write(img, to: url, pxPerPt: k) else { showError("Не удалось подготовить файл", url.path); return }
+        guard ImageFiles.write(img, to: url, pxPerPt: k) else { showError(L("Couldn't prepare the file"), url.path); return }
         let f = window?.frame ?? .zero
         ShelfPanel.addToFrontmost([ShelfItem(file: url, temp: true)], near: NSPoint(x: f.maxX - 150, y: f.maxY - 140))
     }
@@ -705,7 +705,7 @@ final class CanvasView: NSView, NSTextFieldDelegate {
         tf.cell?.isScrollable = true
         tf.cell?.wraps = false
         tf.delegate = self
-        tf.placeholderString = "Текст"
+        tf.placeholderString = L("Text")
         let v = toView(px)
         tf.frame.origin = NSPoint(x: v.x - 2, y: v.y)
         addSubview(tf)
@@ -717,7 +717,7 @@ final class CanvasView: NSView, NSTextFieldDelegate {
 
     private func resizeField() {
         guard let tf = textField else { return }
-        let s = (tf.stringValue.isEmpty ? "Текст" : tf.stringValue) as NSString
+        let s = (tf.stringValue.isEmpty ? L("Text") : tf.stringValue) as NSString
         let sz = s.size(withAttributes: [.font: tf.font as Any])
         tf.setFrameSize(NSSize(width: ceil(sz.width) + 16, height: ceil(sz.height) + 2))
     }

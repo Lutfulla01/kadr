@@ -99,7 +99,7 @@ final class TextShelfPanel: NSPanel {
         isReleasedWhenClosed = false
         isRestorable = false
         setAccessibilityIdentifier("kadr.textShelf")
-        setAccessibilityTitle("Текстовая полка")
+        setAccessibilityTitle(L("Text Shelf"))
         hasShadow = true
         isOpaque = false
         backgroundColor = .clear
@@ -200,19 +200,19 @@ final class TextShelfPanel: NSPanel {
 
     func importClipboard() {
         guard let s = NSPasteboard.general.string(forType: .string), !s.isEmpty else {
-            shelfView.note("В буфере нет текста"); return
+            shelfView.note(L("No text on the clipboard")); return
         }
         let parts = TextShelfStore.split(s, paragraphs: Prefs.importByParagraphs)
         add(parts)
-        shelfView.note("Добавлено: \(parts.count) " + russianPlural(parts.count, "фрагмент", "фрагмента", "фрагментов"))
+        shelfView.note(Lf("Added %d %@", parts.count, Lp(parts.count, "snippet", "snippets")))
     }
 
     func addClipboardAsOne() {
         guard let s = NSPasteboard.general.string(forType: .string), !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            shelfView.note("В буфере нет текста"); return
+            shelfView.note(L("No text on the clipboard")); return
         }
         add([s])
-        shelfView.note("Добавлено одним фрагментом")
+        shelfView.note(L("Added as one snippet"))
     }
 
     func toggleSelectAll() {
@@ -225,20 +225,20 @@ final class TextShelfPanel: NSPanel {
 
     func joinSelected() {
         let t = selectedTexts
-        guard !t.isEmpty else { shelfView.note("Отметьте фрагменты кружками слева"); return }
+        guard !t.isEmpty else { shelfView.note(L("Select snippets with the circles on the left")); return }
         ImageFiles.copyText(t.joined(separator: "\n"))
-        shelfView.note("Скопировано вместе: \(t.count) " + russianPlural(t.count, "фрагмент", "фрагмента", "фрагментов"))
+        shelfView.note(Lf("Copied %d %@ as one", t.count, Lp(t.count, "snippet", "snippets")))
     }
 
     func clearAll() {
         guard !snippets.isEmpty else { return }
         undoSnapshot = snippets
         snippets = []
-        shelfView.note("Полка очищена", button: ("Вернуть", { [weak self] in
+        shelfView.note(L("Shelf cleared"), button: (L("Restore"), { [weak self] in
             guard let self, let s = self.undoSnapshot else { return }
             self.snippets = s
             self.undoSnapshot = nil
-            self.shelfView.note("Возвращено")
+            self.shelfView.note(L("Restored"))
         }), duration: 6)
     }
 
@@ -263,11 +263,11 @@ final class TextShelfPanel: NSPanel {
 
     func pasteSelected() {
         let texts = selectedTexts
-        guard !texts.isEmpty else { shelfView.note("Отметьте фрагменты кружками слева"); return }
+        guard !texts.isEmpty else { shelfView.note(L("Select snippets with the circles on the left")); return }
         guard !pasting, !SequentialPaster.busy else { return }
         guard SequentialPaster.ensureAccess() else {
-            shelfView.note("Чтобы вставлять за вас, включите Kadr в «Универсальном доступе»",
-                           button: ("Открыть", { SequentialPaster.openAccessibilitySettings() }), duration: 10)
+            shelfView.note(L("To paste for you, Kadr needs Accessibility access"),
+                           button: (L("Open"), { SequentialPaster.openAccessibilitySettings() }), duration: 10)
             return
         }
         pasting = true
@@ -276,7 +276,7 @@ final class TextShelfPanel: NSPanel {
         let writers: [(NSPasteboard) -> Void] = texts.map { t in { pb in pb.setString(t, forType: .string) } }
         SequentialPaster.run(writers, separator: Prefs.pasteSeparator, restore: true, activate: target) { [weak self] in
             self?.pasting = false
-            self?.shelfView.note("Вставлено: \(texts.count) " + russianPlural(texts.count, "фрагмент", "фрагмента", "фрагментов"))
+            self?.shelfView.note(Lf("Pasted %d %@", texts.count, Lp(texts.count, "snippet", "snippets")))
             self?.restartTimer()
         }
     }
@@ -289,13 +289,13 @@ final class TextShelfPanel: NSPanel {
 final class TextShelfView: NSVisualEffectView, NSTextFieldDelegate {
     static let rowH: CGFloat = 50
     unowned let panel: TextShelfPanel
-    private let title = NSTextField(labelWithString: "Текстовая полка")
+    private let title = NSTextField(labelWithString: L("Text Shelf"))
     private let count = NSTextField(labelWithString: "")
-    private let pinButton = BarButton(symbol: "pin", tip: "Не скрывать полку")
-    private let closeButton = BarButton(symbol: "xmark", tip: "Скрыть (Esc)")
+    private let pinButton = BarButton(symbol: "pin", tip: L("Keep Shelf Open"))
+    private let closeButton = BarButton(symbol: "xmark", tip: L("Hide (Esc)"))
     private let scroll = NSScrollView()
     let list = TextListView()
-    private let empty = NSTextField(labelWithString: "Перетащите текст сюда\nили нажмите «Импорт буфера»")
+    private let empty = NSTextField(labelWithString: L("Drop text here\nor click Import Clipboard"))
     private let noteLabel = NSTextField(labelWithString: "")
     private let noteButton = NSButton(title: "", target: nil, action: nil)
     private var noteAction: (() -> Void)?
@@ -350,15 +350,15 @@ final class TextShelfView: NSVisualEffectView, NSTextFieldDelegate {
         addSubview(noteButton)
 
         let items: [NSView] = [
-            button("doc.on.clipboard", "Импорт буфера: каждая строка — фрагмент (по абзацам — в настройках)") { $0.importClipboard() },
-            button("plus.square.on.square", "Добавить буфер одним фрагментом") { $0.addClipboardAsOne() },
+            button("doc.on.clipboard", L("Import Clipboard: one snippet per line (by paragraph in Settings)")) { $0.importClipboard() },
+            button("plus.square.on.square", L("Add Clipboard as One Snippet")) { $0.addClipboardAsOne() },
             BarSeparator(),
-            button("checklist", "Отметить всё / снять отметки") { $0.toggleSelectAll() },
-            button("arrow.triangle.merge", "Объединить выбранное и скопировать") { $0.joinSelected() },
-            button("trash", "Очистить полку") { $0.clearAll() },
+            button("checklist", L("Select All / Deselect All")) { $0.toggleSelectAll() },
+            button("arrow.triangle.merge", L("Merge Selected and Copy")) { $0.joinSelected() },
+            button("trash", L("Clear Shelf")) { $0.clearAll() },
             BarSeparator(),
             {
-                let b = BarButton(symbol: "keyboard", tip: "Вставить выбранное по очереди в активное поле", title: "Вставить", prominent: true)
+                let b = BarButton(symbol: "keyboard", tip: L("Paste selected snippets one by one into the active field"), title: L("Paste"), prominent: true)
                 b.onClick = { [weak panel] in panel?.pasteSelected() }
                 return b
             }(),
@@ -397,7 +397,7 @@ final class TextShelfView: NSVisualEffectView, NSTextFieldDelegate {
     func refreshPin() {
         pinButton.setSymbol(panel.pinned ? "pin.fill" : "pin")
         pinButton.isSelected = panel.pinned
-        pinButton.toolTip = panel.pinned ? "Закреплена: не скрывается сама" : "Не скрывать полку"
+        pinButton.toolTip = panel.pinned ? L("Pinned: stays open") : L("Keep Shelf Open")
     }
 
     func reload() {
@@ -475,7 +475,7 @@ final class TextShelfView: NSVisualEffectView, NSTextFieldDelegate {
         f.cell?.isScrollable = false
         f.lineBreakMode = .byWordWrapping
         f.delegate = self
-        f.toolTip = "Enter — сохранить, ⌥Enter — новая строка, Esc — отмена"
+        f.toolTip = L("Return to save, ⌥Return for a new line, Esc to cancel")
         f.frame = row.convert(row.bounds.insetBy(dx: 4, dy: 3), to: list)
         list.addSubview(f)
         editField = f
@@ -606,8 +606,8 @@ final class TextRowView: NSView, NSDraggingSource {
         self.panel = panel
         self.shelfView = shelfView
         check = BarButton(symbol: snippet.selected ? "checkmark.circle.fill" : "circle",
-                          tip: snippet.selected ? "Снять отметку" : "Отметить для вставки")
-        del = BarButton(symbol: "trash", tip: "Удалить фрагмент")
+                          tip: snippet.selected ? L("Deselect") : L("Select for Pasting"))
+        del = BarButton(symbol: "trash", tip: L("Delete Snippet"))
         super.init(frame: .zero)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
@@ -625,7 +625,7 @@ final class TextRowView: NSView, NSDraggingSource {
         titleLabel.stringValue = snippet.title
         titleLabel.font = .systemFont(ofSize: 13, weight: .medium)
         titleLabel.lineBreakMode = .byTruncatingTail
-        previewLabel.stringValue = snippet.preview.isEmpty ? "\(snippet.text.count) " + russianPlural(snippet.text.count, "символ", "символа", "символов") : snippet.preview
+        previewLabel.stringValue = snippet.preview.isEmpty ? "\(snippet.text.count) " + Lp(snippet.text.count, "character", "characters") : snippet.preview
         previewLabel.font = .systemFont(ofSize: 11)
         previewLabel.textColor = .secondaryLabelColor
         previewLabel.lineBreakMode = .byTruncatingTail
@@ -686,7 +686,7 @@ final class TextRowView: NSView, NSDraggingSource {
 
     private func flashCopied() {
         let old = previewLabel.stringValue
-        previewLabel.stringValue = "Скопировано"
+        previewLabel.stringValue = L("Copied")
         previewLabel.textColor = .controlAccentColor
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) { [weak self] in
             self?.previewLabel.stringValue = old
@@ -710,10 +710,10 @@ final class TextRowView: NSView, NSDraggingSource {
         let m = NSMenu()
         let sn = snippet
         let items: [(String, String, () -> Void)] = [
-            ("Копировать", "doc.on.doc", { [weak self] in self?.panel.copy(sn) }),
-            ("Изменить", "pencil", { [weak self] in if let self { self.shelfView.beginEditing(sn, in: self) } }),
-            (sn.selected ? "Снять отметку" : "Отметить", sn.selected ? "circle" : "checkmark.circle", { [weak self] in self?.panel.setSelected(sn.id, !sn.selected) }),
-            ("Удалить", "trash", { [weak self] in self?.panel.delete(sn.id) }),
+            (L("Copy"), "doc.on.doc", { [weak self] in self?.panel.copy(sn) }),
+            (L("Edit Snippet"), "pencil", { [weak self] in if let self { self.shelfView.beginEditing(sn, in: self) } }),
+            (sn.selected ? L("Deselect") : L("Select Snippet"), sn.selected ? "circle" : "checkmark.circle", { [weak self] in self?.panel.setSelected(sn.id, !sn.selected) }),
+            (L("Delete"), "trash", { [weak self] in self?.panel.delete(sn.id) }),
         ]
         for (t, s, a) in items {
             let it = ClosureMenuItem(title: t, handler: a)

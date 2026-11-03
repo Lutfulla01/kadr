@@ -105,9 +105,9 @@ final class GestureTrigger {
     /// Строка для настроек, если жест не работает (nil — всё в порядке или выключен).
     var problem: String? {
         guard Prefs.clipGesture else { return nil }
-        if !available { return "Жест недоступен на этом Mac (нет MultitouchSupport). Работает ⌥⇧V." }
-        if tap == nil { return "Для жеста нужен «Универсальный доступ» для Kadr. Пока работает ⌥⇧V." }
-        if deviceCount == 0 { return "Тачпад не найден. Жест заработает, когда он появится." }
+        if !available { return L("The gesture isn't available on this Mac (no MultitouchSupport). ⌥⇧V still works.") }
+        if tap == nil { return L("The gesture needs Accessibility access for Kadr. Until then, use ⌥⇧V.") }
+        if deviceCount == 0 { return L("No trackpad found. The gesture will work once one is connected.") }
         return nil
     }
 
@@ -360,7 +360,7 @@ final class GestureTrigger {
                 KadrLog.write(fallback ? "жест: копирую (⌘C-проверка) — \(app), буфер сменился за \(Int(dt * 1000)) мс"
                                        : "жест: скопировано — \(app), \(Int(dt * 1000)) мс")
                 decide("скопировано (\(via))")
-                HUD.show("Скопировано", symbol: "doc.on.doc.fill", nearCursor: true)
+                HUD.show(L("Copied"), symbol: "doc.on.doc.fill", nearCursor: true)
                 return
             }
             if dt >= limit {
@@ -370,7 +370,7 @@ final class GestureTrigger {
                 } else {
                     KadrLog.write("жест: выделение есть, но буфер не сменился — \(app)")
                     decide("не скопировано")
-                    HUD.show("Не скопировалось", symbol: "exclamationmark.triangle.fill", nearCursor: true)
+                    HUD.show(L("Couldn't copy"), symbol: "exclamationmark.triangle.fill", nearCursor: true)
                 }
                 return
             }

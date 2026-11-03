@@ -8,17 +8,17 @@ enum Tool: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .select: return "Выделение"
-        case .arrow: return "Стрелка"
-        case .line: return "Линия"
-        case .rect: return "Прямоугольник"
-        case .oval: return "Овал"
-        case .pen: return "Ручка"
-        case .marker: return "Маркер"
-        case .text: return "Текст"
-        case .mosaic: return "Мозаика"
-        case .badge: return "Нумерация"
-        case .crop: return "Обрезка"
+        case .select: return L("Select")
+        case .arrow: return L("Arrow")
+        case .line: return L("Line")
+        case .rect: return L("Rectangle")
+        case .oval: return L("Oval")
+        case .pen: return L("Pen")
+        case .marker: return L("Highlighter")
+        case .text: return L("Text")
+        case .mosaic: return L("Pixelate")
+        case .badge: return L("Counter")
+        case .crop: return L("Crop")
         }
     }
 
@@ -65,10 +65,11 @@ struct Palette {
         NSColor(srgbRed: 0.11, green: 0.11, blue: 0.12, alpha: 1), // чёрный
         NSColor(srgbRed: 1.00, green: 1.00, blue: 1.00, alpha: 1), // белый
     ]
-    static let names = ["Красный", "Оранжевый", "Жёлтый", "Зелёный", "Синий", "Чёрный", "Белый"]
+    static var names: [String] { [L("Red"), L("Orange"), L("Yellow"), L("Green"), L("Blue"), L("Black"), L("White")] }
     /// Толщины линий в точках экрана (тонкая, средняя, толстая).
     static let widthsPt: [CGFloat] = [2, 4, 8]
-    static let widthNames = ["Тонкая", "Средняя", "Толстая"]
+    /// Подсказки кнопок толщины (линия и размер текста).
+    static var widthTips: [String] { [L("Thin line, text size"), L("Medium line, text size"), L("Thick line, text size")] }
     static let fontPt: [CGFloat] = [16, 22, 32]
 }
 

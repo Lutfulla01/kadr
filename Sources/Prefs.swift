@@ -51,13 +51,13 @@ enum HotkeyAction: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .area: return "Снимок области"
-        case .window: return "Снимок окна"
-        case .screen: return "Весь экран"
-        case .ocr: return "Текст с экрана (OCR)"
-        case .shelf: return "Новая полка"
-        case .textShelf: return "Текстовая полка"
-        case .clipboard: return "История буфера"
+        case .area: return L("Capture Area")
+        case .window: return L("Capture Window")
+        case .screen: return L("Capture Screen")
+        case .ocr: return L("Capture Text (OCR)")
+        case .shelf: return L("New Shelf")
+        case .textShelf: return L("Text Shelf")
+        case .clipboard: return L("Clipboard History")
         }
     }
 
@@ -122,6 +122,8 @@ enum Prefs {
             "clipSkipPrivate": false,
             "clipPasteSeparator": "tab",
             "clipPaused": false,
+            "copySound": true,
+            "copySoundVolume": 0.6,
             "showStatusItem": true,
             "clipEdge": false,
             "clipGesture": true,
@@ -162,6 +164,8 @@ enum Prefs {
     static var pasteSeparator: String { d.string(forKey: "pasteSeparator") ?? "none" }
     static var importByParagraphs: Bool { d.bool(forKey: "importByParagraphs") }
     static var clipSkipPrivate: Bool { d.bool(forKey: "clipSkipPrivate") }
+    static var copySound: Bool { d.bool(forKey: "copySound") }
+    static var copySoundVolume: Double { let v = d.double(forKey: "copySoundVolume"); return min(max(v, 0), 1) }
     static var showStatusItem: Bool { d.bool(forKey: "showStatusItem") }
     static var clipEdge: Bool { d.bool(forKey: "clipEdge") }
     static var clipGesture: Bool { d.bool(forKey: "clipGesture") }
@@ -215,7 +219,7 @@ enum KeyNames {
         kVK_ANSI_Minus: "-", kVK_ANSI_Equal: "=", kVK_ANSI_LeftBracket: "[", kVK_ANSI_RightBracket: "]",
         kVK_ANSI_Semicolon: ";", kVK_ANSI_Quote: "'", kVK_ANSI_Comma: ",", kVK_ANSI_Period: ".",
         kVK_ANSI_Slash: "/", kVK_ANSI_Backslash: "\\", kVK_ANSI_Grave: "`",
-        kVK_Space: "Пробел", kVK_Return: "↩", kVK_Tab: "⇥",
+        kVK_Space: L("Space"), kVK_Return: "↩", kVK_Tab: "⇥",
         kVK_F1: "F1", kVK_F2: "F2", kVK_F3: "F3", kVK_F4: "F4", kVK_F5: "F5", kVK_F6: "F6",
         kVK_F7: "F7", kVK_F8: "F8", kVK_F9: "F9", kVK_F10: "F10", kVK_F11: "F11", kVK_F12: "F12",
         kVK_F13: "F13", kVK_F14: "F14", kVK_F15: "F15",
