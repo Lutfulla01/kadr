@@ -10,61 +10,210 @@ private typealias FnRegister = @convention(c) (MTDeviceRef?, MTContactCallback?)
 private typealias FnStart = @convention(c) (MTDeviceRef?, Int32) -> Void
 private typealias FnStop = @convention(c) (MTDeviceRef?) -> Void
 
-/// Чистая логика: кадр касаний → число пальцев, нажатие → решение. Проверяется на поддельных кадрах (--gesture-test).
+/// Чистая логика: лента кадров касаний → пальцы у нажатия → решение. Проверяется на поддельной ленте (--gesture-test).
+/// Пальцы опускаются не разом (длина разная), поэтому считаем разные контакты за короткое окно вокруг щелчка,
+/// а не один последний кадр. Опоздавший третий палец macOS видит как щелчок двумя — правую кнопку.
 enum GestureLogic {
-    /// Размер структуры касания MultitouchSupport и смещение поля state.
+    /// Структура касания MultitouchSupport (MTTouch): шаг 96 байт; identifier @16, state @20, size @48.
     static let touchStride = 96
+    static let idOffset = 16
     static let stateOffset = 20
-    /// 3 — палец опускается, 4 — касается.
-    static let touchingStates: ClosedRange<Int32> = 3...4
+    static let sizeOffset = 48
+    /// Состояния MT: 0 нет, 1 вошёл в зону, 2 над поверхностью, 3 опускается, 4 касается, 5 отрывается, 6 оторвался, 7 ушёл.
+    static let touchStates: ClosedRange<Int32> = 3...5
+    /// Ещё у поверхности (2 — мигание лёгкого пальца). 6 — уже оторвался, 7/0 — ушёл: не считаем.
+    static let presentStates: ClosedRange<Int32> = 1...5
     /// Кадр старше этого — пальцев уже нет (при касании кадры идут ~100 раз в секунду).
     static let maxFrameAge = 0.25
+    /// Третий палец мог коснуться раньше щелчка (и не оторваться)…
+    static let before = 0.10
+    /// …или позже: при ровно двух пальцах держим нажатие до maxWait, опрашивая каждые pollStep.
+    static let maxWait = 0.09
+    static let pollStep = 0.004
+    /// Контакт ещё есть, если был в кадре не раньше чем за столько до последнего кадра.
+    static let presentSlack = 0.025
+    /// Большой палец / ладонь: лежит дольше restAge и крупнее остальных в palmRatio раз — не в счёт.
+    static let restAge = 0.5
+    static let palmRatio: Float = 1.6
+    /// 3 пальца; 4 — три и лежащий палец (нажатие четырьмя у macOS ничего не значит). 5 и больше — нет.
+    static let toggleRange = 3...4
+    static let historyKeep = 0.7
+    static let maxFrames = 160
 
-    /// Сколько пальцев касаются. Если поле state выглядит мусором (другая раскладка структуры) — берём n.
-    static func touching(_ touches: UnsafeRawPointer?, count n: Int) -> (fingers: Int, layoutOK: Bool) {
-        guard let touches, n > 0 else { return (0, true) }
-        var c = 0
-        for i in 0..<n {
-            let st = touches.load(fromByteOffset: i * touchStride + stateOffset, as: Int32.self)
-            if !(0...7).contains(st) { return (n, false) }
-            if touchingStates.contains(st) { c += 1 }
-        }
-        return (c, true)
+    struct Contact { var id: Int32; var state: Int32; var size: Float }
+    struct Frame { var t: Double; var contacts: [Contact]; var layoutOK = true }
+
+    struct Count {
+        var fingers = 0         // засчитанные пальцы без большого пальца / ладони
+        var counted = 0         // все засчитанные контакты
+        var palm = false
+        var contacts = 0        // в последнем кадре, любые состояния
+        var age = 99.0          // последний кадр, с назад
+        var layoutOK = true
+        var lastTouch: Double?  // когда коснулся последний из пальцев
+        var sizes: [Float] = []
     }
 
-    /// Нажатие тачпада переключает панель, если в этот момент касаются ровно 3 пальца.
-    static func shouldToggle(fingers: Int, frameAge: Double) -> Bool {
-        frameAge <= maxFrameAge && fingers == 3
+    struct Decision {
+        var count = Count()
+        var atPress = 0
+        var peak = 0
+        var waited: Double?     // сколько держали нажатие, ожидая 3-й палец
+        var click = 0.0
+        var toggle: Bool { count.counted <= toggleRange.upperBound && toggleRange.contains(count.fingers) }
+        /// Обычный щелчок одним пальцем или мышью: не трогаем и не пишем в журнал.
+        var quiet: Bool { peak < 2 && count.contacts < 3 }
+    }
+
+    /// Контакты кадра. Если state или identifier выглядят мусором (другая раскладка структуры) — все n контактов как касания.
+    static func contacts(_ touches: UnsafeRawPointer?, count n: Int) -> (contacts: [Contact], layoutOK: Bool) {
+        guard let touches, n > 0 else { return ([], true) }
+        var out: [Contact] = []
+        out.reserveCapacity(n)
+        for i in 0..<n {
+            let base = i * touchStride
+            let st = touches.load(fromByteOffset: base + stateOffset, as: Int32.self)
+            let id = touches.load(fromByteOffset: base + idOffset, as: Int32.self)
+            guard (0...7).contains(st), (0...4095).contains(id), !out.contains(where: { $0.id == id }) else {
+                return ((0..<n).map { Contact(id: Int32($0), state: 4, size: 0) }, false)
+            }
+            let sz = touches.load(fromByteOffset: base + sizeOffset, as: Float.self)
+            out.append(Contact(id: id, state: st, size: sz.isFinite && sz > 0 && sz < 100 ? sz : 0))
+        }
+        return (out, true)
+    }
+
+    /// Пальцы нажатия в момент now по ленте одного тачпада: контакт считается, если касался (3…5) в окне
+    /// [щелчок − before, now] и ещё есть (был в недавнем кадре, последнее состояние 1…5).
+    static func count(_ frames: [Frame], click tc: Double, now: Double) -> Count {
+        var r = Count()
+        var end = frames.count
+        while end > 0, frames[end - 1].t > now { end -= 1 }
+        guard end > 0 else { return r }
+        let last = frames[end - 1]
+        r.age = now - last.t
+        guard r.age <= maxFrameAge else { return r }
+        r.contacts = last.contacts.count
+        r.layoutOK = last.layoutOK
+        struct Track { var id: Int32; var state: Int32; var seen: Double; var run: Double; var touch: Double?; var inWindow = false; var size: Float = 0 }
+        var tracks: [Track] = []
+        var prev: [Contact] = []
+        let lo = tc - before
+        for f in frames[0..<end] {
+            for c in f.contacts {
+                // Тот же контакт, если был в прошлом кадре и не уходил (7/0); иначе — новый, даже с тем же номером.
+                let same = prev.contains { $0.id == c.id && $0.state != 7 && $0.state != 0 }
+                let k = tracks.lastIndex { $0.id == c.id }
+                var t = Track(id: c.id, state: c.state, seen: f.t, run: f.t)
+                if same, let k { t = tracks[k] }
+                t.state = c.state; t.seen = f.t
+                if touchStates.contains(c.state) {
+                    if t.touch == nil { t.touch = f.t }
+                    if f.t >= lo { t.inWindow = true; t.size = max(t.size, c.size) }
+                }
+                if same, let k { tracks[k] = t } else { if let k { tracks.remove(at: k) }; tracks.append(t) }
+            }
+            prev = f.contacts
+        }
+        var fingers = tracks.filter { $0.inWindow && $0.seen >= last.t - presentSlack && presentStates.contains($0.state) }
+        r.counted = fingers.count
+        r.sizes = fingers.map(\.size)
+        // Лежащий большой палец / ладонь: заметно крупнее остальных и лежит давно.
+        if fingers.count >= 2, let big = fingers.indices.max(by: { fingers[$0].size < fingers[$1].size }) {
+            let others = fingers.indices.filter { $0 != big }.map { fingers[$0].size }
+            if let m = others.max(), others.allSatisfy({ $0 > 0 }),
+               fingers[big].size >= palmRatio * m, fingers[big].run <= tc - restAge {
+                fingers.remove(at: big)
+                r.palm = true
+            }
+        }
+        r.fingers = fingers.count
+        r.lastTouch = fingers.compactMap(\.touch).max()
+        return r
+    }
+
+    /// Самый «занятый» тачпад со свежим кадром.
+    static func best(_ devices: [[Frame]], click tc: Double, now: Double) -> Count {
+        var b = Count()
+        for f in devices {
+            let c = count(f, click: tc, now: now)
+            if (c.fingers, c.counted, c.contacts, -c.age) > (b.fingers, b.counted, b.contacts, -b.age) { b = c }
+        }
+        return b
+    }
+
+    /// Решение у нажатия. sample — снимок лент всех тачпадов и текущее время, pause — шаг ожидания.
+    /// Ждём только при ровно двух пальцах; щелчок одним пальцем и мышью (нет свежих кадров) проходят сразу.
+    static func decide(click tc: Double, sample: () -> (now: Double, devices: [[Frame]]), pause: () -> Void) -> Decision {
+        var d = Decision(click: tc)
+        var s = sample()
+        d.count = best(s.devices, click: tc, now: s.now)
+        d.atPress = d.count.fingers
+        d.peak = d.count.fingers
+        if d.count.fingers == 2 {
+            repeat {
+                pause()
+                s = sample()
+                d.count = best(s.devices, click: tc, now: s.now)
+                d.peak = max(d.peak, d.count.fingers)
+            } while d.count.fingers == 2 && s.now - tc < maxWait
+            d.waited = s.now - tc
+        }
+        return d
+    }
+
+    /// Строка журнала: одно нажатие — одна строка.
+    static func describe(_ d: Decision, button: String, source: String, pressure: Double, swallowed: Bool, on: Bool) -> String {
+        let c = d.count
+        var s = "жест (\(source), \(button)): пальцев \(c.fingers) (при нажатии \(d.atPress), максимум \(d.peak))"
+        if let w = d.waited {
+            s += String(format: ", ждал 3-й палец %.0f мс — %@", w * 1000, c.fingers >= 3 ? "пришёл" : "не пришёл")
+        }
+        if let lt = c.lastTouch, c.fingers >= 2 {
+            let ms = (lt - d.click) * 1000
+            if ms >= 0 { s += String(format: ", последний коснулся через %.0f мс после щелчка", ms) }
+            else if -ms < restAge * 1000 { s += String(format: ", последний коснулся за %.0f мс до щелчка", -ms) }
+            else { s += ", все лежали заранее" }
+        }
+        if c.palm { s += ", большой палец/ладонь не в счёт" }
+        s += ", контактов \(c.contacts)"
+        if c.sizes.contains(where: { $0 > 0 }) { s += ", размеры " + c.sizes.map { String(format: "%.2f", $0) }.joined(separator: "/") }
+        if !c.layoutOK { s += ", раскладка незнакомая" }
+        s += String(format: ", нажим %.2f, ", pressure) + (c.age < 99 ? String(format: "кадр %.0f мс назад", c.age * 1000) : "кадров нет")
+        if swallowed { return s + ", проглочено да" }
+        let why = !on ? "жест выключен" : c.counted > toggleRange.upperBound ? "контактов \(c.counted), много" : "пальцев \(c.fingers)"
+        return s + ", проглочено нет → " + why
     }
 }
 
-/// Последние кадры по устройствам (обновляются из потока MultitouchSupport).
+/// Короткая лента кадров по устройствам (пишется из потока MultitouchSupport, читается с потока перехвата).
 private final class TouchState {
     static let shared = TouchState()
     private let lock = NSLock()
-    private var byDevice: [UInt: (fingers: Int, raw: Int, at: CFTimeInterval)] = [:]
-    private(set) var layoutWarned = false
+    private var byDevice: [UInt: [GestureLogic.Frame]] = [:]
+    private var layoutWarned = false
 
     func update(_ dev: MTDeviceRef?, _ touches: UnsafeMutableRawPointer?, _ n: Int32) {
-        let r = GestureLogic.touching(UnsafeRawPointer(touches), count: Int(n))
+        let r = GestureLogic.contacts(UnsafeRawPointer(touches), count: Int(n))
+        let now = CACurrentMediaTime()
         let key = UInt(bitPattern: dev)
         lock.lock()
-        byDevice[key] = (r.fingers, Int(n), CACurrentMediaTime())
+        var h = byDevice.removeValue(forKey: key) ?? []
+        h.append(GestureLogic.Frame(t: now, contacts: r.contacts, layoutOK: r.layoutOK))
+        var drop = 0
+        while drop < h.count - 1, h[drop].t < now - GestureLogic.historyKeep { drop += 1 }
+        drop = max(drop, h.count - GestureLogic.maxFrames)
+        if drop > 0 { h.removeFirst(drop) }
+        byDevice[key] = h
         let warn = !r.layoutOK && !layoutWarned
         if warn { layoutWarned = true }
         lock.unlock()
         if warn { DispatchQueue.main.async { KadrLog.write("жест: незнакомая раскладка кадров тачпада — считаю все контакты") } }
     }
 
-    /// Пальцы на самом «занятом» устройстве со свежим кадром.
-    func current() -> (fingers: Int, raw: Int, age: Double) {
-        let now = CACurrentMediaTime()
+    func snapshot() -> (now: Double, devices: [[GestureLogic.Frame]]) {
         lock.lock(); defer { lock.unlock() }
-        var best = (fingers: 0, raw: 0, age: 99.0)
-        for (_, v) in byDevice where now - v.at <= GestureLogic.maxFrameAge && v.fingers >= best.fingers {
-            best = (v.fingers, v.raw, now - v.at)
-        }
-        return best
+        return (CACurrentMediaTime(), Array(byDevice.values))
     }
 
     func reset() { lock.lock(); byDevice = [:]; lock.unlock() }
@@ -78,7 +227,8 @@ private let contactCallback: MTContactCallback = { dev, touches, n, _, _ in
 // MARK: - Жест «нажатие тремя пальцами»
 
 /// Физическое нажатие тачпада тремя пальцами открывает и прячет панель истории.
-/// Нажатие перехватывается (CGEventTap), чтобы под курсором ничего не щёлкнуло.
+/// Нажатие перехватывается (CGEventTap), чтобы под курсором ничего не щёлкнуло. Слушаем и правую кнопку:
+/// если третий палец опоздал, macOS видит щелчок двумя пальцами (правый) — его тоже глотаем, меню не откроется.
 final class GestureTrigger {
     static let shared = GestureTrigger()
 
@@ -90,7 +240,8 @@ final class GestureTrigger {
     private var tap: CFMachPort?            // под lock: читается и с потока перехвата
     private var tapSource: CFRunLoopSource?
     private var tapLoop: CFRunLoop?
-    private var swallowing = false          // только поток перехвата
+    private enum Held { case none, left, right }
+    private var held = Held.none            // только поток перехвата: какое нажатие проглочено
     private let lock = NSLock()
     private var on = false                  // под lock: копия enabled для потока перехвата
     private var watchTimer: Timer?
@@ -219,7 +370,8 @@ final class GestureTrigger {
             return
         }
         guard available else { return }
-        let mask = (1 << CGEventType.leftMouseDown.rawValue) | (1 << CGEventType.leftMouseUp.rawValue) | (1 << CGEventType.leftMouseDragged.rawValue)
+        let types: [CGEventType] = [.leftMouseDown, .leftMouseUp, .leftMouseDragged, .rightMouseDown, .rightMouseUp, .rightMouseDragged]
+        let mask = types.reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << $1.rawValue) }
         guard let t = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
                                         eventsOfInterest: CGEventMask(mask), callback: { _, type, event, _ in
             GestureTrigger.shared.handle(type, event)
@@ -258,21 +410,30 @@ final class GestureTrigger {
             if let t = currentTap() { CGEvent.tapEnable(tap: t, enable: true) }
             DispatchQueue.main.async { KadrLog.write("жест: система выключила перехват (\(type == .tapDisabledByTimeout ? "таймаут" : "ввод")) — включил снова") }
             return Unmanaged.passUnretained(event)
-        case .leftMouseDown:
-            swallowing = false
-            let t = TouchState.shared.current()
+        case .leftMouseDown, .rightMouseDown:
+            held = .none
+            lock.lock(); let on = self.on; lock.unlock()
+            guard on else { return Unmanaged.passUnretained(event) }
+            // При ровно двух пальцах колбэк ждёт третий до 90 мс (кадры идут со своего потока); иначе решение сразу.
+            let d = GestureLogic.decide(click: CACurrentMediaTime(), sample: { TouchState.shared.snapshot() },
+                                        pause: { usleep(useconds_t(GestureLogic.pollStep * 1_000_000)) })
             // Обычный щелчок одним пальцем (или мышью) не трогаем и не пишем в журнал.
-            guard t.fingers >= 2 || t.raw >= 3 else { return Unmanaged.passUnretained(event) }
-            let pressure = event.getDoubleValueField(.mouseEventPressure)
-            if press(fingers: t.fingers, raw: t.raw, age: t.age, pressure: pressure, source: "тачпад") {
-                swallowing = true
+            if d.quiet { return Unmanaged.passUnretained(event) }
+            let right = type == .rightMouseDown
+            if press(d, button: right ? "правая" : "левая", pressure: event.getDoubleValueField(.mouseEventPressure), source: "тачпад") {
+                held = right ? .right : .left
                 return nil
             }
             return Unmanaged.passUnretained(event)
         case .leftMouseDragged:
-            return swallowing ? nil : Unmanaged.passUnretained(event)
+            return held == .left ? nil : Unmanaged.passUnretained(event)
+        case .rightMouseDragged:
+            return held == .right ? nil : Unmanaged.passUnretained(event)
         case .leftMouseUp:
-            if swallowing { swallowing = false; return nil }
+            if held == .left { held = .none; return nil }
+            return Unmanaged.passUnretained(event)
+        case .rightMouseUp:
+            if held == .right { held = .none; return nil }
             return Unmanaged.passUnretained(event)
         default:
             return Unmanaged.passUnretained(event)
@@ -282,25 +443,26 @@ final class GestureTrigger {
     /// Общий путь для настоящего жеста и проверки (--gesture-sim): решение, переключение, журнал.
     /// Возвращает true, если нажатие надо проглотить.
     @discardableResult
-    func press(fingers: Int, raw: Int, age: Double, pressure: Double, source: String) -> Bool {
+    func press(_ d: GestureLogic.Decision, button: String, pressure: Double, source: String) -> Bool {
         lock.lock()
         let on = self.on
-        let toggle = on && GestureLogic.shouldToggle(fingers: fingers, frameAge: age)
+        let toggle = on && d.toggle
         if toggle { togglesStore += 1 }
         lock.unlock()
-        if toggle {
-            DispatchQueue.main.async {
-                KadrLog.write(String(format: "жест (%@): пальцев %d (контактов %d), нажим %.2f, кадр %.0f мс назад, проглочено да",
-                                     source, fingers, raw, pressure, age * 1000))
-                GestureTrigger.shared.act()
-            }
-        } else {
-            DispatchQueue.main.async {
-                KadrLog.write(String(format: "жест (%@): пальцев %d (контактов %d), нажим %.2f, кадр %.0f мс назад, проглочено нет → %@",
-                                     source, fingers, raw, pressure, age * 1000, on ? "не 3 пальца" : "жест выключен"))
-            }
+        let line = GestureLogic.describe(d, button: button, source: source, pressure: pressure, swallowed: toggle, on: on)
+        DispatchQueue.main.async {
+            KadrLog.write(line)
+            if toggle { GestureTrigger.shared.act() }
         }
         return toggle
+    }
+
+    /// Проверка без тачпада (--gesture-sim): «N пальцев» разом, без ожидания.
+    @discardableResult
+    func press(fingers: Int, raw: Int, age: Double, pressure: Double, source: String) -> Bool {
+        var c = GestureLogic.Count()
+        c.fingers = fingers; c.counted = fingers; c.contacts = raw; c.age = age
+        return press(GestureLogic.Decision(count: c, atPress: fingers, peak: fingers), button: "левая", pressure: pressure, source: source)
     }
 
     // MARK: Что делает нажатие (главный поток)
@@ -436,30 +598,171 @@ enum SelectionProbe {
 // MARK: - Проверка логики на поддельных кадрах
 
 enum GestureSelfTest {
-    static func run() -> Bool {
-        var ok = true
-        func check(_ name: String, _ cond: Bool) { print("\(cond ? "OK " : "НЕТ") \(name)"); if !cond { ok = false } }
-        func frame(_ states: [Int32]) -> (Int, Bool) {
-            let buf = UnsafeMutableRawPointer.allocate(byteCount: max(1, states.count) * GestureLogic.touchStride, alignment: 8)
-            defer { buf.deallocate() }
-            memset(buf, 0, max(1, states.count) * GestureLogic.touchStride)
-            for (i, s) in states.enumerated() { buf.storeBytes(of: s, toByteOffset: i * GestureLogic.touchStride + GestureLogic.stateOffset, as: Int32.self) }
-            let r = GestureLogic.touching(buf, count: states.count)
-            return (r.fingers, r.layoutOK)
+    /// Палец на ленте: кадр над поверхностью (2), коснулся в land (3, потом 4), оторвался в lift (5 → 6 → 6 → 7 → исчез).
+    private struct Finger {
+        var id: Int32
+        var land: Double
+        var lift = Double.infinity
+        var size: Float = 1
+        var flicker: ClosedRange<Double>? = nil
+        var flickerState: Int32 = 2
+    }
+
+    private static let dt = 0.008     // ~125 кадров в секунду
+
+    /// Лента кадров, щелчок в момент 0. Кадры идут, пока есть контакты, плюс один пустой после ухода всех.
+    private static func timeline(_ fingers: [Finger], from start: Double = -0.7, to end: Double = 0.2) -> [GestureLogic.Frame] {
+        var out: [GestureLogic.Frame] = []
+        var i = 0
+        while start + Double(i) * dt <= end + 1e-9 {
+            let t = start + Double(i) * dt
+            i += 1
+            var cs: [GestureLogic.Contact] = []
+            for f in fingers where t >= f.land - dt {
+                var st: Int32
+                if t < f.land { st = 2 }
+                else if t < f.lift { st = t - f.land < dt ? 3 : 4; if let fl = f.flicker, fl.contains(t) { st = f.flickerState } }
+                else {
+                    let k = Int((t - f.lift) / dt)
+                    if k == 0 { st = 5 } else if k <= 2 { st = 6 } else if k == 3 { st = 7 } else { continue }
+                }
+                cs.append(.init(id: f.id, state: st, size: f.size))
+            }
+            if !cs.isEmpty || out.last.map({ !$0.contacts.isEmpty }) == true { out.append(.init(t: t, contacts: cs)) }
         }
-        check("3 пальца касаются → 3", frame([4, 4, 4]) == (3, true))
-        check("3 касаются + 1 отрывается → 3", frame([4, 4, 4, 5]) == (3, true))
-        check("2 касаются + 1 опускается → 3", frame([4, 4, 3]) == (3, true))
-        check("4 пальца → 4", frame([4, 4, 4, 4]) == (4, true))
-        check("ладонь рядом (вне касания) не считается", frame([4, 4, 1, 7]) == (2, true))
-        check("пустой кадр → 0", frame([]) == (0, true))
-        check("мусор в state → считаем все контакты", frame([4, 99, 4]) == (3, false))
-        check("3 пальца, свежий кадр → переключить", GestureLogic.shouldToggle(fingers: 3, frameAge: 0.01))
-        check("2 пальца → нет", !GestureLogic.shouldToggle(fingers: 2, frameAge: 0.01))
-        check("4 пальца → нет", !GestureLogic.shouldToggle(fingers: 4, frameAge: 0.01))
-        check("1 палец/мышь → нет", !GestureLogic.shouldToggle(fingers: 1, frameAge: 0.01))
-        check("3 пальца, но кадр старый (пальцы уже убраны) → нет", !GestureLogic.shouldToggle(fingers: 3, frameAge: 0.5))
-        check("нет кадров (мышь, тачпад не трогали) → нет", !GestureLogic.shouldToggle(fingers: 0, frameAge: 99))
+        return out
+    }
+
+    /// Решение по ленте: колбэк перехвата получает нажатие через 2 мс, ожидание — виртуальными шагами.
+    private static func decide(_ frames: [GestureLogic.Frame]) -> GestureLogic.Decision {
+        var now = 0.002
+        return GestureLogic.decide(click: 0, sample: { (now, [frames.filter { $0.t <= now }]) }, pause: { now += GestureLogic.pollStep })
+    }
+
+    private static func raw(_ items: [(id: Int32, state: Int32, size: Float)]) -> (contacts: [GestureLogic.Contact], layoutOK: Bool) {
+        let n = max(1, items.count)
+        let buf = UnsafeMutableRawPointer.allocate(byteCount: n * GestureLogic.touchStride, alignment: 8)
+        defer { buf.deallocate() }
+        memset(buf, 0, n * GestureLogic.touchStride)
+        for (i, c) in items.enumerated() {
+            buf.storeBytes(of: c.id, toByteOffset: i * GestureLogic.touchStride + GestureLogic.idOffset, as: Int32.self)
+            buf.storeBytes(of: c.state, toByteOffset: i * GestureLogic.touchStride + GestureLogic.stateOffset, as: Int32.self)
+            buf.storeBytes(of: c.size, toByteOffset: i * GestureLogic.touchStride + GestureLogic.sizeOffset, as: Float.self)
+        }
+        return GestureLogic.contacts(buf, count: items.count)
+    }
+
+    static func run() -> Bool {
+        var ok = true, passed = 0, total = 0
+        func check(_ name: String, _ cond: Bool) {
+            total += 1; if cond { passed += 1 } else { ok = false }
+            print("\(cond ? "OK " : "НЕТ") \(name)")
+        }
+        func ms(_ d: GestureLogic.Decision) -> String { d.waited.map { String(format: " [ждал %.0f мс]", $0 * 1000) } ?? "" }
+        let early = -0.3
+
+        // Разбор сырого кадра MultitouchSupport.
+        let r1 = raw([(1, 4, 1.2), (2, 4, 0.9), (3, 3, 1.0)])
+        check("кадр: номера, состояния и размеры читаются", r1.layoutOK && r1.contacts.map(\.id) == [1, 2, 3] && r1.contacts.map(\.state) == [4, 4, 3] && r1.contacts[0].size == 1.2)
+        check("кадр: пустой → нет контактов", raw([]).contacts.isEmpty && raw([]).layoutOK)
+        let g1 = raw([(1, 4, 1), (2, 99, 1), (3, 4, 1)])
+        check("кадр: мусор в state → все контакты как касания (старая раскладка)", !g1.layoutOK && g1.contacts.count == 3 && g1.contacts.allSatisfy { $0.state == 4 })
+        check("кадр: одинаковые номера → все контакты как касания", !raw([(5, 4, 1), (5, 4, 1)]).layoutOK)
+        check("кадр: номер вне диапазона → все контакты как касания", !raw([(1, 4, 1), (1_000_000, 4, 1)]).layoutOK)
+        check("кадр: размер NaN → 0", raw([(1, 4, .nan)]).contacts.first?.size == 0)
+
+        // Нажатия на ленте.
+        var d = decide(timeline([.init(id: 1, land: early), .init(id: 2, land: early), .init(id: 3, land: early)]))
+        check("три пальца разом → переключить без ожидания", d.toggle && d.waited == nil && d.atPress == 3)
+        print("    пример: " + GestureLogic.describe(d, button: "левая", source: "тачпад", pressure: 1, swallowed: d.toggle, on: true))
+
+        d = decide(timeline([.init(id: 1, land: early), .init(id: 2, land: early), .init(id: 3, land: 0.04)]))
+        check("3-й палец через 40 мс после щелчка → переключить" + ms(d), d.toggle && d.atPress == 2 && (d.waited ?? 1) < 0.06)
+        print("    пример: " + GestureLogic.describe(d, button: "левая", source: "тачпад", pressure: 1, swallowed: d.toggle, on: true))
+
+        d = decide(timeline([.init(id: 1, land: early), .init(id: 2, land: early), .init(id: 3, land: -0.07)]))
+        check("3-й палец за 70 мс до щелчка (и лежит) → переключить", d.toggle && d.waited == nil)
+
+        d = decide(timeline([.init(id: 1, land: early), .init(id: 2, land: early), .init(id: 3, land: -0.07, lift: -0.04)]))
+        check("3-й коснулся за 70 мс и уже оторвался → нет" + ms(d), !d.toggle && d.atPress == 2)
+
+        d = decide(timeline([.init(id: 1, land: early), .init(id: 2, land: early), .init(id: 3, land: early, flicker: -0.02...0.03)]))
+        check("безымянный мигает 4→2→4 у щелчка → переключить без ожидания", d.toggle && d.waited == nil)
+
+        d = decide(timeline([.init(id: 1, land: early), .init(id: 2, land: early), .init(id: 3, land: early, flicker: -0.02...0.02, flickerState: 6)]))
+        check("безымянный мигает через 6 и возвращается → дождались, переключить" + ms(d), d.toggle && d.waited != nil)
+
+        d = decide(timeline([.init(id: 1, land: -0.15), .init(id: 2, land: -0.15), .init(id: 3, land: 0.06)]))
+        check("правая: 3-й палец через 60 мс → переключить и проглотить" + ms(d), d.toggle && d.atPress == 2 && (d.waited ?? 1) < 0.08)
+        print("    пример: " + GestureLogic.describe(d, button: "правая", source: "тачпад", pressure: 1, swallowed: d.toggle, on: true))
+
+        d = decide(timeline([.init(id: 1, land: -0.15), .init(id: 2, land: -0.15)]))
+        check("правая: честные два пальца → пропустить, ожидание ≤ 100 мс" + ms(d), !d.toggle && !d.quiet && (d.waited ?? 0) >= 0.085 && (d.waited ?? 1) <= 0.1)
+        print("    пример: " + GestureLogic.describe(d, button: "правая", source: "тачпад", pressure: 1, swallowed: d.toggle, on: true))
+
+        d = decide(timeline([.init(id: 1, land: early), .init(id: 2, land: early), .init(id: 3, land: 0.12)]))
+        check("3-й палец через 120 мс — поздно → нет" + ms(d), !d.toggle && (d.waited ?? 1) <= 0.1)
+
+        d = decide(timeline([.init(id: 1, land: early), .init(id: 2, land: early, lift: 0.02)]))
+        check("пальцы ушли во время ожидания → дальше не ждём" + ms(d), !d.toggle && (d.waited ?? 1) < 0.05)
+
+        d = decide(timeline([.init(id: 1, land: -0.6, lift: -0.09), .init(id: 2, land: -0.6, lift: -0.09), .init(id: 3, land: -0.04)]))
+        check("прокрутка двумя кончилась, щелчок одним → нет, сразу, без журнала", !d.toggle && d.waited == nil && d.quiet)
+
+        d = decide(timeline([.init(id: 1, land: -0.6, lift: -0.015), .init(id: 2, land: -0.6, lift: -0.015), .init(id: 3, land: -0.04)]))
+        check("прокрутка только что кончилась (пальцы в 6), щелчок одним → нет, сразу", !d.toggle && d.waited == nil && d.count.fingers == 1)
+
+        d = decide(timeline([.init(id: 9, land: -0.65, size: 2.8), .init(id: 1, land: -0.2), .init(id: 2, land: -0.2), .init(id: 3, land: -0.2)]))
+        check("3 пальца + лежащий большой палец → переключить (большой не в счёт)", d.toggle && d.count.palm && d.count.fingers == 3)
+        print("    пример: " + GestureLogic.describe(d, button: "левая", source: "тачпад", pressure: 1, swallowed: d.toggle, on: true))
+
+        d = decide(timeline([.init(id: 1, land: -0.2), .init(id: 2, land: -0.2), .init(id: 3, land: -0.2), .init(id: 4, land: -0.2)]))
+        check("4 одинаковых контакта → переключить (три пальца и ещё один)", d.toggle && d.count.fingers == 4)
+
+        d = decide(timeline([.init(id: 9, land: -0.65, size: 2.8), .init(id: 1, land: -0.15), .init(id: 2, land: -0.15)]))
+        check("правая двумя + лежащий большой палец → пропустить" + ms(d), !d.toggle && d.count.palm && d.count.fingers == 2)
+
+        d = decide(timeline([.init(id: 9, land: -0.65, size: 2.8), .init(id: 1, land: -0.15)]))
+        check("щелчок одним + лежащий большой палец → сразу мимо, без журнала", !d.toggle && d.waited == nil && d.quiet)
+
+        d = decide(timeline([.init(id: 1, land: -0.2, size: 2.0), .init(id: 2, land: -0.2), .init(id: 3, land: -0.2)]))
+        check("крупный палец, но лёг вместе с остальными → считается", d.toggle && !d.count.palm && d.count.fingers == 3)
+
+        d = decide(timeline((1...5).map { .init(id: Int32($0), land: -0.2) }))
+        check("5 пальцев → нет", !d.toggle && d.waited == nil)
+
+        d = decide(timeline([.init(id: 9, land: -0.65, size: 2.8)] + (1...4).map { .init(id: Int32($0), land: -0.2) }))
+        check("4 пальца + ладонь (5 контактов) → нет", !d.toggle)
+
+        d = decide(timeline([.init(id: 1, land: -0.6), .init(id: 2, land: -0.6), .init(id: 3, land: -0.6)], to: -0.4))
+        check("старые кадры (тачпад молчит 400 мс) → нет, сразу", !d.toggle && d.waited == nil && d.quiet)
+
+        d = decide([])
+        check("мышь (кадров нет) → сразу мимо, без журнала", !d.toggle && d.waited == nil && d.quiet)
+
+        d = decide(timeline([.init(id: 1, land: -0.2)]))
+        check("щелчок одним пальцем → сразу мимо, без журнала", !d.toggle && d.waited == nil && d.quiet)
+
+        let g3 = raw([(1, 4, 1), (2, 99, 1), (3, 4, 1)])
+        let gf = stride(from: -0.3, through: 0.0, by: dt).map { GestureLogic.Frame(t: $0, contacts: g3.contacts, layoutOK: g3.layoutOK) }
+        d = decide(gf)
+        check("незнакомая раскладка, 3 контакта → переключить (как раньше)", d.toggle && !d.count.layoutOK)
+
+        // Проверка без тачпада (--gesture-sim) и границы.
+        func sim(_ n: Int) -> Bool { var c = GestureLogic.Count(); c.fingers = n; c.counted = n; return GestureLogic.Decision(count: c).toggle }
+        check("проверка: 3 → да, 4 → да, 2 → нет, 5 → нет, 1 → нет", sim(3) && sim(4) && !sim(2) && !sim(5) && !sim(1))
+
+        // Настоящее ожидание (usleep) не дольше потолка.
+        let t0 = CACurrentMediaTime()
+        let real = GestureLogic.decide(click: t0, sample: {
+            let now = CACurrentMediaTime()
+            let two = [GestureLogic.Contact(id: 1, state: 4, size: 1), GestureLogic.Contact(id: 2, state: 4, size: 1)]
+            return (now, [[GestureLogic.Frame(t: now - 0.3, contacts: two), GestureLogic.Frame(t: now - 0.002, contacts: two)]])
+        }, pause: { usleep(useconds_t(GestureLogic.pollStep * 1_000_000)) })
+        let el = CACurrentMediaTime() - t0
+        check(String(format: "настоящее ожидание при двух пальцах: %.0f мс (потолок 90, допуск до 120)", el * 1000), !real.toggle && el >= 0.085 && el < 0.12)
+
+        print("итого: \(passed)/\(total)")
         return ok
     }
 }
