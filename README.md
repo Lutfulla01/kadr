@@ -8,6 +8,8 @@
   <a href="https://github.com/Lutfulla01/kadr/releases/download/v1.4/kadr-promo-16x9.mp4">Видео на 43 секунды (MP4)</a>
   ·
   <a href="https://github.com/Lutfulla01/kadr/releases/latest">Скачать dmg</a>
+  ·
+  <a href="https://www.reddit.com/r/Kadr/">Сообщество r/Kadr</a>
 </p>
 
 <p align="center">
@@ -272,7 +274,7 @@ windows or run OCR on it. Kadr also has a drag-and-drop file shelf, a text-snipp
 history that opens with a three-finger trackpad press. It makes no network connections at all: no telemetry,
 no update checks, no accounts. English and Russian UI (follows system language, or pick one in Settings). Requires macOS 14+ on Apple Silicon or Intel.
 
-[Watch the 43-second video (MP4)](https://github.com/Lutfulla01/kadr/releases/download/v1.4/kadr-promo-16x9.mp4)
+[Watch the 43-second video (MP4)](https://github.com/Lutfulla01/kadr/releases/download/v1.4/kadr-promo-16x9.mp4) · Questions, bugs and ideas: [r/Kadr](https://www.reddit.com/r/Kadr/)
 
 **Features**
 
