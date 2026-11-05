@@ -1,32 +1,126 @@
 # Kadr
 
 <p align="center">
-  <img src="docs/images/kadr-hero.gif" width="900" alt="Kadr: история буфера и нажатие тремя пальцами">
+  <img src="docs/images/kadr-hero.gif" width="900" alt="Kadr: clipboard history panel and screenshot tools">
 </p>
 
 <p align="center">
-  <a href="https://github.com/Lutfulla01/kadr/releases/download/v1.4/kadr-promo-16x9.mp4">Видео на 43 секунды (MP4)</a>
+  <a href="https://github.com/Lutfulla01/kadr/releases/download/v1.4/kadr-promo-16x9.mp4">43-second video (MP4)</a>
   ·
-  <a href="https://github.com/Lutfulla01/kadr/releases/latest">Скачать dmg</a>
+  <a href="https://github.com/Lutfulla01/kadr/releases/latest">Download the dmg</a>
   ·
-  <a href="https://www.reddit.com/r/Kadr/">Сообщество r/Kadr</a>
+  <a href="https://www.reddit.com/r/Kadr/">r/Kadr community</a>
 </p>
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/history-dark.png">
-    <img src="docs/images/history-light.png" width="460" alt="Окно истории буфера Kadr">
+    <img src="docs/images/history-light.png" width="460" alt="Kadr clipboard history window">
   </picture>
 </p>
 
+[Русская версия ниже](#russian)
+
+## English
+
+Kadr is a macOS menu-bar utility for screenshots with an annotation editor. You can pin a screenshot above other
+windows or run OCR on it. Kadr also has a drag-and-drop file shelf, a text-snippet shelf and an encrypted clipboard
+history that opens with ⌥⇧V. It makes no network connections at all: no telemetry,
+no update checks, no accounts. English and Russian UI (follows system language, or pick one in Settings). Requires macOS 14+ on Apple Silicon or Intel.
+
+Questions, bugs and ideas: [r/Kadr](https://www.reddit.com/r/Kadr/).
+
+**Features**
+
+- Capture an area (Space switches to window mode), a window or the screen under the cursor.
+  The result is copied to the clipboard and saved to `~/Pictures/Screenshots`.
+- Editor: arrow, line, rectangle, oval, pen, highlighter, text, pixelate, numbered badges, crop; 7 colors; undo/redo.
+- Pin a screenshot above all windows; OCR in Russian and English (Vision).
+- File shelf: shake the cursor while dragging and a shelf appears under it.
+- Text shelf with persistent snippets, pasted one after another.
+- Clipboard history shown as cards: type to search, filters in the "…" menu.
+  ⌘1–⌘9 paste card N. Select several cards and press ↩ to paste them separated by Tab, e.g. login and password.
+- Optional three-finger trackpad press (off by default): copies the selected text if there is a selection,
+  otherwise toggles the history panel. If three-finger drag is on in System Settings, Kadr leaves it alone and the
+  gesture does nothing. The screen-edge panel is optional and off by default too.
+- A soft synthesized tick on every new copy (can be turned off, volume in Settings).
+- History is encrypted on disk with AES-GCM; the key is kept in the login Keychain. Passwords are masked in the list.
+
+**Default hotkeys:**
+
+| Hotkey | Action |
+|---|---|
+| ⌥⇧4 | area |
+| ⌥⇧5 | window |
+| ⌥⇧3 | full screen |
+| ⌥⇧2 | OCR to clipboard |
+| ⌥⇧D | new shelf |
+| ⌥⇧T | text shelf |
+| ⌥⇧V | clipboard history |
+
+All hotkeys can be changed in Settings.
+
+**Install.** Download the DMG from Releases and drag Kadr to Applications. The build is not notarized, so the first
+launch is blocked. Open System Settings → Privacy & Security, click "Open Anyway", confirm, and launch Kadr again.
+Alternatively, run `xattr -dr com.apple.quarantine /Applications/Kadr.app`.
+
+**Build:**
+
+1. Install Command Line Tools with Swift 6 (`xcode-select --install`). No other dependencies are needed.
+2. Run the build:
+   ```sh
+   git clone https://github.com/Lutfulla01/kadr.git && cd kadr
+   ./build.sh app    # build/Kadr.app only (universal)
+   ./build.sh        # build, install to /Applications, relaunch
+   ./build.sh dmg    # dist/Kadr-<version>.dmg
+   ```
+
+**Signing.** The signing identity comes from `KADR_SIGN_IDENTITY`, or from the first line of an untracked
+`.signing` file. Otherwise the app is signed ad-hoc. Ad-hoc builds work, but each rebuild is a new app to macOS:
+- Screen Recording and Accessibility are requested again;
+- macOS asks for the login Keychain password once, to let the new build read the history key.
+  Choose "Always Allow". If you deny it, history stays in memory only.
+
+Sign with your own (even free Apple Development) certificate to keep both.
+
+**Permissions:**
+
+- Screen Recording: for capture and OCR.
+- Accessibility: for pasting on your behalf, the trackpad gesture and reading the selected text.
+
+**Privacy.** The history records everything you copy, including passwords. Passwords are masked in the list,
+and you can exclude them or exclude specific apps in Settings. All data stays in
+`~/Library/Application Support/Kadr/`.
+
+**Uninstall:**
+
+1. Turn off "launch at login" and quit Kadr.
+2. Delete the app.
+3. Remove the data:
+   ```sh
+   rm -rf ~/Library/Application\ Support/Kadr ~/Library/Logs/Kadr.log
+   defaults delete uz.lutfulla.kadr
+   security delete-generic-password -s uz.lutfulla.kadr.clipboard
+   ```
+4. Remove Kadr from Screen Recording and Accessibility.
+
+**Testing.** `Kadr --status`, `--ocr <file>`, `--gesture-test`. With `KADR_PROFILE=<name>`, Kadr runs an isolated
+profile with its own settings, data, Keychain key and single-instance lock: `--clip-test write|reload`,
+`--profile-state`, `--profile-reset`. `KADR_THREE_FINGER_DRAG=1` makes a test profile act as if three-finger drag were on.
+
+**License:** MIT.
+
+---
+
+<a id="russian"></a>
+## Русский
+
 Kadr — утилита для macOS, которая живёт в строке меню. Она делает снимки экрана и открывает их в редакторе пометок.
 Снимок можно закрепить поверх окон или распознать на нём текст. Ещё в Kadr есть полка для перетаскивания файлов,
-текстовая полка с готовыми фразами и зашифрованная история буфера обмена. История открывается нажатием тачпада
-тремя пальцами.
+текстовая полка с готовыми фразами и зашифрованная история буфера обмена. История открывается по ⌥⇧V,
+а по желанию и нажатием тачпада тремя пальцами.
 
 Kadr не ходит в сеть: в нём нет телеметрии, проверки обновлений и аккаунтов. Окна появляются только по вашему действию.
-
-[English version below](#english)
 
 ## Возможности
 
@@ -264,95 +358,3 @@ KADR_PROFILE=t $K --profile-reset        # удалить данные, ключ
 ## Лицензия
 
 [MIT](LICENSE).
-
----
-
-<a id="english"></a>
-## English
-
-Kadr is a macOS menu-bar utility for screenshots with an annotation editor. You can pin a screenshot above other
-windows or run OCR on it. Kadr also has a drag-and-drop file shelf, a text-snippet shelf and an encrypted clipboard
-history that opens with ⌥⇧V. It makes no network connections at all: no telemetry,
-no update checks, no accounts. English and Russian UI (follows system language, or pick one in Settings). Requires macOS 14+ on Apple Silicon or Intel.
-
-[Watch the 43-second video (MP4)](https://github.com/Lutfulla01/kadr/releases/download/v1.4/kadr-promo-16x9.mp4) · Questions, bugs and ideas: [r/Kadr](https://www.reddit.com/r/Kadr/)
-
-**Features**
-
-- Capture an area (Space switches to window mode), a window or the screen under the cursor.
-  The result is copied to the clipboard and saved to `~/Pictures/Screenshots`.
-- Editor: arrow, line, rectangle, oval, pen, highlighter, text, pixelate, numbered badges, crop; 7 colors; undo/redo.
-- Pin a screenshot above all windows; OCR in Russian and English (Vision).
-- File shelf: shake the cursor while dragging and a shelf appears under it.
-- Text shelf with persistent snippets, pasted one after another.
-- Clipboard history shown as cards: type to search, filters in the "…" menu.
-  ⌘1–⌘9 paste card N. Select several cards and press ↩ to paste them separated by Tab, e.g. login and password.
-- Optional three-finger trackpad press (off by default): copies the selected text if there is a selection,
-  otherwise toggles the history panel. If three-finger drag is on in System Settings, Kadr leaves it alone and the
-  gesture does nothing. The screen-edge panel is optional and off by default too.
-- A soft synthesized tick on every new copy (can be turned off, volume in Settings).
-- History is encrypted on disk with AES-GCM; the key is kept in the login Keychain. Passwords are masked in the list.
-
-**Default hotkeys:**
-
-| Hotkey | Action |
-|---|---|
-| ⌥⇧4 | area |
-| ⌥⇧5 | window |
-| ⌥⇧3 | full screen |
-| ⌥⇧2 | OCR to clipboard |
-| ⌥⇧D | new shelf |
-| ⌥⇧T | text shelf |
-| ⌥⇧V | clipboard history |
-
-All hotkeys can be changed in Settings.
-
-**Install.** Download the DMG from Releases and drag Kadr to Applications. The build is not notarized, so the first
-launch is blocked. Open System Settings → Privacy & Security, click "Open Anyway", confirm, and launch Kadr again.
-Alternatively, run `xattr -dr com.apple.quarantine /Applications/Kadr.app`.
-
-**Build:**
-
-1. Install Command Line Tools with Swift 6 (`xcode-select --install`). No other dependencies are needed.
-2. Run the build:
-   ```sh
-   git clone https://github.com/Lutfulla01/kadr.git && cd kadr
-   ./build.sh app    # build/Kadr.app only (universal)
-   ./build.sh        # build, install to /Applications, relaunch
-   ./build.sh dmg    # dist/Kadr-<version>.dmg
-   ```
-
-**Signing.** The signing identity comes from `KADR_SIGN_IDENTITY`, or from the first line of an untracked
-`.signing` file. Otherwise the app is signed ad-hoc. Ad-hoc builds work, but each rebuild is a new app to macOS:
-- Screen Recording and Accessibility are requested again;
-- macOS asks for the login Keychain password once, to let the new build read the history key.
-  Choose "Always Allow". If you deny it, history stays in memory only.
-
-Sign with your own (even free Apple Development) certificate to keep both.
-
-**Permissions:**
-
-- Screen Recording: for capture and OCR.
-- Accessibility: for pasting on your behalf, the trackpad gesture and reading the selected text.
-
-**Privacy.** The history records everything you copy, including passwords. Passwords are masked in the list,
-and you can exclude them or exclude specific apps in Settings. All data stays in
-`~/Library/Application Support/Kadr/`.
-
-**Uninstall:**
-
-1. Turn off "launch at login" and quit Kadr.
-2. Delete the app.
-3. Remove the data:
-   ```sh
-   rm -rf ~/Library/Application\ Support/Kadr ~/Library/Logs/Kadr.log
-   defaults delete uz.lutfulla.kadr
-   security delete-generic-password -s uz.lutfulla.kadr.clipboard
-   ```
-4. Remove Kadr from Screen Recording and Accessibility.
-
-**Testing.** `Kadr --status`, `--ocr <file>`, `--gesture-test`. With `KADR_PROFILE=<name>`, Kadr runs an isolated
-profile with its own settings, data, Keychain key and single-instance lock: `--clip-test write|reload`,
-`--profile-state`, `--profile-reset`. `KADR_THREE_FINGER_DRAG=1` makes a test profile act as if three-finger drag were on.
-
-**License:** MIT.
