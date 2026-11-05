@@ -355,6 +355,11 @@ struct SettingsView: View {
                 }
                 Text("Takes effect after you restart Kadr.")
                     .font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    Label("Welcome tour", systemImage: "hand.wave")
+                    Spacer()
+                    Button("Show Welcome Tour") { OnboardingController.show() }
+                }
             }
         }
         .formStyle(.grouped)

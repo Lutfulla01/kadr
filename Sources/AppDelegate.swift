@@ -13,6 +13,13 @@ enum AppActions {
         ImageFiles.copyText(t)
         if Prefs.showHUD { HUD.show(L("Text Copied"), symbol: "doc.on.clipboard") }
     }
+
+    /// Системные настройки → Конфиденциальность → Запись экрана (окно разрешения и знакомство).
+    static func openScreenRecordingSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+            NSWorkspace.shared.open(url)
+        }
+    }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
@@ -137,6 +144,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Prefs.d.set(true, forKey: "loginItemInitialized")
             try? SMAppService.mainApp.register()
         }
+        // Знакомство: один раз для новой установки (прежние пользователи отмечаются без показа), флаги --onboarding*.
+        Onboarding.launchIfNeeded()
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
@@ -254,6 +263,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(histItem)
         menu.addItem(item(L("Open Screenshots Folder"), symbol: "folder", action: #selector(openFolder)))
         menu.addItem(.separator())
+        menu.addItem(item(L("Welcome Tour…"), symbol: "hand.wave", action: #selector(openWelcomeTour)))
         let settings = item(L("Settings…"), symbol: "gearshape", action: #selector(openSettings))
         settings.keyEquivalent = ","
         menu.addItem(settings)
@@ -317,6 +327,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func openSettings() {
         SettingsWindowController.show(onHotkeysChanged: {})
     }
+
+    @objc private func openWelcomeTour() { OnboardingController.show() }
 
     @objc private func quit() { NSApp.terminate(nil) }
 
@@ -412,9 +424,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         a.addButton(withTitle: L("Open System Settings"))
         a.addButton(withTitle: L("Not Now"))
         NSApp.activate(ignoringOtherApps: true)
-        if a.runModal() == .alertFirstButtonReturn,
-           let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-            NSWorkspace.shared.open(url)
-        }
+        if a.runModal() == .alertFirstButtonReturn { AppActions.openScreenRecordingSettings() }
     }
 }

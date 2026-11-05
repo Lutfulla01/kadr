@@ -11,6 +11,7 @@
 //   KADR_PROFILE=<имя> Kadr --clip-test write|reload — проверка истории буфера без окон
 //   KADR_PROFILE=<имя> Kadr --profile-reset       — удалить данные, ключ и настройки профиля
 //   KADR_PROFILE=<имя> Kadr --clip-render out.png [--multi] — нарисовать окно истории в файл (без показа)
+//   Kadr --onboarding [--onboarding-page <n>] — показать знакомство (с n-й страницы, с 1); KADR_NO_ONBOARDING=1 — не показывать само
 import AppKit
 import ServiceManagement
 import SwiftUI
@@ -45,6 +46,8 @@ func renderTest(_ input: URL, _ output: URL) {
 }
 
 let args = CommandLine.arguments
+// До любых записей в настройки и папку данных: новая ли это установка (для знакомства).
+Onboarding.captureInstallState()
 Prefs.registerDefaults()
 
 if let i = args.firstIndex(of: "--ocr") {

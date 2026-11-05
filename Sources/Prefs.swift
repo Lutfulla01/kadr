@@ -174,6 +174,11 @@ enum Prefs {
     static var clipEdgeSide: String { d.string(forKey: "clipEdgeSide") ?? "right" }
     static var clipEdgeDelay: Double { let v = d.double(forKey: "clipEdgeDelay"); return v > 0 ? min(max(v, 0.1), 2) : 0.25 }
     static var clipPasteSeparator: String { d.string(forKey: "clipPasteSeparator") ?? "tab" }
+    /// Версия пройденного знакомства (0 — не видел). Нет в registerDefaults: отсутствие ключа и есть «не видел».
+    static var onboardingVersion: Int {
+        get { d.integer(forKey: "onboardingVersion") }
+        set { d.set(newValue, forKey: "onboardingVersion") }
+    }
 
     // Горячие клавиши: "код:модификаторы", "none" — выключено, нет ключа — по умолчанию.
     static func hotkey(_ a: HotkeyAction) -> HotkeySpec? {

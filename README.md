@@ -43,6 +43,8 @@ Questions, bugs and ideas: [r/Kadr](https://www.reddit.com/r/Kadr/).
 - Optional three-finger trackpad press (off by default): copies the selected text if there is a selection,
   otherwise toggles the history panel. If three-finger drag is on in System Settings, Kadr leaves it alone and the
   gesture does nothing. The screen-edge panel is optional and off by default too.
+- A short welcome tour on first launch that shows the gestures and shortcuts (Skip, Back, Continue, arrow keys).
+  Open it again from the menu bar item ("Welcome Tour…") or Settings.
 - A soft synthesized tick on every new copy (can be turned off, volume in Settings).
 - History is encrypted on disk with AES-GCM; the key is kept in the login Keychain. Passwords are masked in the list.
 
@@ -106,7 +108,7 @@ and you can exclude them or exclude specific apps in Settings. All data stays in
 
 **Testing.** `Kadr --status`, `--ocr <file>`, `--gesture-test`. With `KADR_PROFILE=<name>`, Kadr runs an isolated
 profile with its own settings, data, Keychain key and single-instance lock: `--clip-test write|reload`,
-`--profile-state`, `--profile-reset`. `KADR_THREE_FINGER_DRAG=1` makes a test profile act as if three-finger drag were on.
+`--profile-state`, `--profile-reset`. `KADR_THREE_FINGER_DRAG=1` makes a test profile act as if three-finger drag were on. `--onboarding` and `--onboarding-page <n>` open the welcome tour; `KADR_NO_ONBOARDING=1` keeps it from showing on a fresh profile.
 
 **License:** MIT.
 
@@ -145,6 +147,8 @@ Kadr не ходит в сеть: в нём нет телеметрии, про�
   - тот же жест прячет панель;
   - если в системе включено перетаскивание тремя пальцами, Kadr его не трогает и жест не работает.
 - **Панель у края экрана:** история по упору курсора в край. По желанию, по умолчанию выключена.
+- **Знакомство при первом запуске:** короткий тур по жестам и сочетаниям (пропустить, назад, дальше, стрелки).
+  Открыть снова: «Welcome Tour…» в меню Kadr или кнопка в настройках.
 - **Звук при копировании:** короткий мягкий «тик», свой синтезированный; выключается и регулируется в настройках.
 - **Локальное шифрование.** История зашифрована на диске, пароли в списке скрыты точками.
 - **Никакой сети** — ни одного сетевого вызова в коде.
