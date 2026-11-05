@@ -48,9 +48,17 @@ let args = CommandLine.arguments
 Prefs.registerDefaults()
 
 if let i = args.firstIndex(of: "--ocr") {
-    guard i + 1 < args.count else { fail("использование: Kadr --ocr <файл>") }
+    guard i + 1 < args.count else { fail("использование: Kadr --ocr <файл | - (PNG из stdin)> [--rows | --no-rows]") }
+    let rows = args.contains("--rows") || (!args.contains("--no-rows") && Prefs.keepTableRows)
+    if args[i + 1] == "-" {
+        // Режим отдельного процесса распознавания (OCR.recognizeIsolated): снимок приходит через stdin.
+        let data = FileHandle.standardInput.readDataToEndOfFile()
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+              let cg = CGImageSourceCreateImageAtIndex(src, 0, nil) else { fail("stdin: не картинка") }
+        print(OCR.recognize(cg, keepRows: rows))
+        exit(0)
+    }
     guard let img = ImageFiles.load(URL(fileURLWithPath: args[i + 1])) else { fail("не читается: \(args[i + 1])") }
-    let rows = args.contains("--rows") || Prefs.keepTableRows
     print(OCR.recognize(img.cg, keepRows: rows))
     exit(0)
 }
@@ -197,7 +205,7 @@ if let i = args.firstIndex(of: "--clip-perf") {
         let t0 = Date()
         let fresh = ClipStore(dir: ClipStore.defaultDir)
         let tLoad = Date().timeIntervalSince(t0)
-        let view = ClipHistoryPanel.shared.view!
+        let view = ClipHistoryPanel.shared.view
         let t1 = Date()
         view.prepareForShow()
         view.frame = NSRect(origin: .zero, size: ClipHistoryPanel.size)
@@ -262,7 +270,7 @@ if let i = args.firstIndex(of: "--clip-render"), i + 1 < args.count {
     put("com.apple.TextEdit", "TextEdit") { pb.setString(UILocale.isRussian ? "Встреча в 15:00\nобсудить запуск и цены" : "Meeting at 3 pm\ndiscuss launch and pricing", forType: .string) }
     pb.releaseGlobally()
     if let first = store.items.last { store.setPinned(first.id, true) }
-    let view = ClipHistoryPanel.shared.view!
+    let view = ClipHistoryPanel.shared.view
     view.prepareForShow()
     if args.contains("--multi") {
         // Выделение логин → пароль, как для заполнения формы.

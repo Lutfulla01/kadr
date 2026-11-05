@@ -397,7 +397,7 @@ final class EditorController: NSWindowController, NSWindowDelegate {
         guard let img = flattened() else { return }
         let rows = Prefs.keepTableRows
         DispatchQueue.global(qos: .userInitiated).async {
-            let text = OCR.recognize(img, keepRows: rows)
+            let text = OCR.recognizeIsolated(img, keepRows: rows)
             DispatchQueue.main.async { AppActions.deliverOCR(text) }
         }
     }

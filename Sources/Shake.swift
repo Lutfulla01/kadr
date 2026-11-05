@@ -136,14 +136,33 @@ final class ShakeMonitor {
     private var gate = DragShakeGate()
     private var firedThisDrag = false
 
+    /// Движение мыши без кнопки нужно только встряхиванию без перетаскивания (по умолчанию выключено).
+    /// Монитор движения будит Kadr на каждом сдвиге курсора, поэтому ставится только при включённой настройке.
+    private var moveMonitor: Any?
+    private var idleObserver: NSKeyValueObservation?
+
     func start() {
         guard monitors.isEmpty else { return }
         let down = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] e in self?.mouseDown(e) }
         let drag = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDragged) { [weak self] e in self?.mouseDragged(e) }
         let up = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in self?.mouseUp() }
-        let move = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] e in self?.mouseMoved(e) }
-        monitors = [down, drag, up, move].compactMap { $0 }
-        available = monitors.count == 4
+        monitors = [down, drag, up].compactMap { $0 }
+        available = monitors.count == 3
+        updateMoveMonitor()
+        idleObserver = Prefs.d.observe(\.idleShakeEnabled, options: [.new]) { [weak self] _, _ in
+            DispatchQueue.main.async { self?.updateMoveMonitor() }
+        }
+    }
+
+    private func updateMoveMonitor() {
+        let want = Prefs.idleShakeEnabled
+        if want, moveMonitor == nil {
+            moveMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] e in self?.mouseMoved(e) }
+        } else if !want, let m = moveMonitor {
+            NSEvent.removeMonitor(m)
+            moveMonitor = nil
+            idleDetector.reset()
+        }
     }
 
     /// Пауза после открытия или закрытия полки, чтобы полки не мигали.

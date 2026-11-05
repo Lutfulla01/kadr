@@ -93,6 +93,7 @@ extension UserDefaults {
     @objc dynamic var showStatusItem: Bool { bool(forKey: "showStatusItem") }
     @objc dynamic var clipEdge: Bool { bool(forKey: "clipEdge") }
     @objc dynamic var clipGesture: Bool { bool(forKey: "clipGesture") }
+    @objc dynamic var idleShakeEnabled: Bool { bool(forKey: "idleShakeEnabled") }
 }
 
 enum Prefs {

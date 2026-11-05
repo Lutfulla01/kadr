@@ -322,6 +322,9 @@ final class ClipStore {
         return img
     }
 
+    /// Окна истории выгружены — миниатюры в памяти больше не нужны (при показе подгрузятся с диска).
+    func dropThumbnailCache() { thumbCache.removeAll() }
+
     /// Миниатюра без задержки списка: из кэша сразу, иначе расшифровка и декодирование в фоне.
     func cachedThumbnail(_ it: ClipItem) -> NSImage? { thumbCache[it.id] }
 
@@ -564,7 +567,7 @@ enum ClipRecorder {
     }
 }
 
-/// Следит за буфером обмена: 0,25 с в покое, 0,05 с во время серий (разрешений не требует).
+/// Следит за буфером обмена: 0,5 с в покое, 0,05 с во время серий (разрешений не требует).
 final class ClipMonitor {
     static let shared = ClipMonitor()
     private var timer: Timer?
@@ -575,8 +578,8 @@ final class ClipMonitor {
         set { Prefs.d.set(newValue, forKey: "clipPaused") }
     }
 
-    /// Обычно — раз в 0,25 с; несколько секунд после изменения — каждые 0,05 с (быстрые серии копирований).
-    static let idleInterval = 0.25, fastInterval = 0.05, fastWindow = 4.0
+    /// Обычно — раз в 0,5 с (было 0,25: вдвое меньше пробуждений в покое); несколько секунд после изменения — каждые 0,05 с.
+    static let idleInterval = 0.5, fastInterval = 0.05, fastWindow = 4.0
     private var fastUntil = Date.distantPast
     private var emptySince: Date?
     private var interval = 0.0
@@ -640,7 +643,21 @@ final class ClipHistoryPanel: NSPanel, NSWindowDelegate {
         if let e = edgeIfCreated { return e }
         let e = ClipHistoryPanel(edge: true); edgeIfCreated = e; return e
     }
-    private(set) var view: ClipHistoryView!
+    /// Вид истории живёт, только пока панель нужна: через releaseDelay после скрытия он выгружается
+    /// (слои CoreAnimation, ячейки таблицы, миниатюры), при следующем обращении строится заново.
+    private var loadedView: ClipHistoryView?
+    var view: ClipHistoryView {
+        if let v = loadedView { return v }
+        let v = ClipHistoryView(panel: self, store: ClipStore.shared)
+        loadedView = v
+        contentView = v
+        if !isVisible { scheduleRelease() }
+        return v
+    }
+    /// Вид без создания (для сводок состояния).
+    var viewIfLoaded: ClipHistoryView? { loadedView }
+    static let releaseDelay = 10.0
+    private var releaseWork: DispatchWorkItem?
     var previousApp: NSRunningApplication?
     /// «Не прятать после вставки» (замок в нижней панели).
     var keepOpen = false
@@ -669,11 +686,33 @@ final class ClipHistoryPanel: NSPanel, NSWindowDelegate {
         title = edge ? L("Clipboard History (Screen Edge)") : L("Clipboard History")
         setAccessibilityTitle(title)
         setAccessibilityIdentifier(axPrefix)
-        view = ClipHistoryView(panel: self, store: ClipStore.shared)
-        contentView = view
+        _ = view
         ClipStore.shared.onChange = {
             for p in [ClipHistoryPanel.shared, ClipHistoryPanel.edgeIfCreated].compactMap({ $0 }) where p.isVisible { p.view.reload() }
         }
+    }
+
+    private func cancelRelease() { releaseWork?.cancel(); releaseWork = nil }
+
+    private func scheduleRelease() {
+        releaseWork?.cancel()
+        let w = DispatchWorkItem { [weak self] in self?.releaseView() }
+        releaseWork = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + ClipHistoryPanel.releaseDelay, execute: w)
+    }
+
+    /// Скрытая панель отдаёт память: вид, его слои и миниатюры. Окно-оболочка остаётся (оно лёгкое).
+    private func releaseView() {
+        releaseWork = nil
+        guard loadedView != nil, !isVisible else { return }
+        if SequentialPaster.busy { scheduleRelease(); return }   // вставка с замком ещё вернёт панель
+        if QLPreviewPanel.sharedPreviewPanelExists(), QLPreviewPanel.shared().isVisible { scheduleRelease(); return }
+        makeFirstResponder(nil)
+        contentView = nil
+        loadedView = nil
+        // Миниатюры уже нарисованных строк держат сами ячейки; кэш при следующем показе подгрузится с диска.
+        ClipStore.shared.dropThumbnailCache()
+        MemoryRelief.soon()
     }
 
     override var canBecomeKey: Bool { true }
@@ -697,6 +736,7 @@ final class ClipHistoryPanel: NSPanel, NSWindowDelegate {
     /// в панели не щёлкнули или не повели в ней мышью (тогда можно печатать в поиске).
     func showAtEdge(screen: NSScreen, right: Bool, sticky: Bool = false) {
         let t0 = CACurrentMediaTime()
+        cancelRelease()
         edgeOpenedAt = t0
         self.sticky = sticky
         let front = NSWorkspace.shared.frontmostApplication
@@ -771,6 +811,7 @@ final class ClipHistoryPanel: NSPanel, NSWindowDelegate {
 
     func show() {
         let t0 = CACurrentMediaTime()
+        cancelRelease()
         let front = NSWorkspace.shared.frontmostApplication
         if front?.bundleIdentifier != Bundle.main.bundleIdentifier { previousApp = front }
         ClipStore.clearViewDir()
@@ -803,6 +844,7 @@ final class ClipHistoryPanel: NSPanel, NSWindowDelegate {
         if QLPreviewPanel.sharedPreviewPanelExists(), QLPreviewPanel.shared().isVisible { QLPreviewPanel.shared().orderOut(nil) }
         let wasVisible = isVisible
         orderOut(nil)
+        scheduleRelease()
         if isEdge {
             if wasVisible { KadrLog.write(String(format: "панель у края: скрыта через %.0f мс", (CACurrentMediaTime() - edgeOpenedAt) * 1000)) }
             leaveTimer?.invalidate(); leaveTimer = nil
@@ -849,7 +891,7 @@ final class ClipHistoryPanel: NSPanel, NSWindowDelegate {
         SequentialPaster.run(writers, separator: Prefs.clipPasteSeparator, restore: !single, activate: previousApp) { [weak self] in
             if single, let it = list.first { store.touch(it.id) }
             // Замок: панель возвращается, но клавиатура остаётся в программе, куда вставили.
-            if reshow, let self { self.view.reload(); self.orderFrontRegardless(); if self.isEdge { self.startEdgeTimer() } }
+            if reshow, let self { self.cancelRelease(); self.view.reload(); self.orderFrontRegardless(); if self.isEdge { self.startEdgeTimer() } }
         }
     }
 

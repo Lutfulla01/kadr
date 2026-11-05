@@ -52,21 +52,39 @@ enum OCR {
 }
 
 extension OCR {
-    /// Первое распознавание после запуска долго грузит модели Vision — прогреваем в фоне при запуске.
-    static func warmUp() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            let img = NSImage(size: NSSize(width: 240, height: 64), flipped: false) { r in
-                NSColor.white.setFill(); r.fill()
-                ("Kadr 123 Снимок" as NSString).draw(at: NSPoint(x: 10, y: 18), withAttributes: [.font: NSFont.systemFont(ofSize: 24), .foregroundColor: NSColor.black])
-                return true
-            }
-            guard let cg = img.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
-            DispatchQueue.global(qos: .utility).async {
-                let t0 = Date()
-                let text = recognize(cg, keepRows: false)
-                KadrLog.write("прогрев распознавания: \(String(format: "%.1f", Date().timeIntervalSince(t0))) с, «\(text.replacingOccurrences(of: "\n", with: " "))»")
-            }
+    /// Распознавание в отдельном коротком процессе (`Kadr --ocr -`, снимок PNG через stdin):
+    /// модели Vision (~25 МБ) не остаются в памяти постоянно запущенного Kadr. Холодный запуск ~0,1–0,3 с.
+    /// Если процесс не запустился или упал — распознаём здесь же, как раньше.
+    static func recognizeIsolated(_ cg: CGImage, keepRows: Bool) -> String {
+        if let text = recognizeInChild(cg, keepRows: keepRows) { return text }
+        KadrLog.write("распознавание: отдельный процесс не сработал — распознаю в Kadr")
+        return recognize(cg, keepRows: keepRows)
+    }
+
+    private static func recognizeInChild(_ cg: CGImage, keepRows: Bool) -> String? {
+        guard let exe = Bundle.main.executableURL else { return nil }
+        signal(SIGPIPE, SIG_IGN)   // процесс упал до чтения stdin — запись вернёт ошибку, а не убьёт Kadr
+        let rep = NSBitmapImageRep(cgImage: cg)
+        guard let png = rep.representation(using: .png, properties: [:]) else { return nil }
+        let p = Process()
+        p.executableURL = exe
+        p.arguments = ["--ocr", "-"] + (keepRows ? ["--rows"] : ["--no-rows"])
+        let inPipe = Pipe(), outPipe = Pipe()
+        p.standardInput = inPipe
+        p.standardOutput = outPipe
+        p.standardError = FileHandle.nullDevice
+        do { try p.run() } catch { return nil }
+        // Пишем в фоне: большой снимок не помещается в буфер канала, а stdout читаем здесь.
+        DispatchQueue.global(qos: .userInitiated).async {
+            try? inPipe.fileHandleForWriting.write(contentsOf: png)
+            try? inPipe.fileHandleForWriting.close()
         }
+        let out = outPipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else { return nil }
+        var text = String(decoding: out, as: UTF8.self)
+        if text.hasSuffix("\n") { text.removeLast() }
+        return text
     }
 }
 

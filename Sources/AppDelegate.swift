@@ -130,7 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         term.resume()
         termSource = term
         RuntimeState.start()
-        OCR.warmUp()
+        // OCR.warmUp() убран: распознавание идёт в отдельном процессе, модели Vision в Kadr не держим.
 
         // Тестовый профиль не трогает автозапуск настоящего Kadr.
         if Profile.name == nil && !Prefs.d.bool(forKey: "loginItemInitialized") {
@@ -359,7 +359,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         HUD.show(L("Recognizing Text…"), symbol: "text.viewfinder", sticky: true)
         let t0 = Date()
         DispatchQueue.global(qos: .userInitiated).async {
-            let text = OCR.recognize(img.cg, keepRows: rows)
+            let text = OCR.recognizeIsolated(img.cg, keepRows: rows)
             try? FileManager.default.removeItem(at: tmp)
             DispatchQueue.main.async {
                 KadrLog.write("распознавание: \(img.cg.width)×\(img.cg.height), \(text.count) симв., \(String(format: "%.2f", Date().timeIntervalSince(t0))) с")

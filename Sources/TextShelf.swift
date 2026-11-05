@@ -72,17 +72,47 @@ final class TextShelfPanel: NSPanel {
     var snippets: [Snippet] = TextShelfStore.load() {
         didSet {
             TextShelfStore.save(snippets)
-            shelfView.reload()
+            loadedShelfView?.reload()
         }
     }
     var pinned: Bool {
         get { Prefs.d.bool(forKey: "textShelfPinned") }
-        set { Prefs.d.set(newValue, forKey: "textShelfPinned"); shelfView.refreshPin(); restartTimer() }
+        set { Prefs.d.set(newValue, forKey: "textShelfPinned"); loadedShelfView?.refreshPin(); restartTimer() }
     }
     private(set) var pasting = false
     var editing = false { didSet { restartTimer() } }
     private var hideTimer: Timer?
-    private var shelfView: TextShelfView!
+    /// Вид полки строится по требованию и выгружается через releaseDelay после скрытия
+    /// (слои CoreAnimation и строки); заметки хранятся в панели, так что пересборка ничего не теряет.
+    private var loadedShelfView: TextShelfView?
+    private var shelfView: TextShelfView {
+        if let v = loadedShelfView { return v }
+        let v = TextShelfView(panel: self)
+        loadedShelfView = v
+        contentView = v
+        if !isVisible { scheduleRelease() } else { v.reload() }
+        return v
+    }
+    static let releaseDelay = 10.0
+    private var releaseWork: DispatchWorkItem?
+
+    private func scheduleRelease() {
+        releaseWork?.cancel()
+        let w = DispatchWorkItem { [weak self] in self?.releaseView() }
+        releaseWork = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + TextShelfPanel.releaseDelay, execute: w)
+    }
+
+    private func releaseView() {
+        releaseWork = nil
+        guard let v = loadedShelfView, !isVisible else { return }
+        if SequentialPaster.busy { scheduleRelease(); return }
+        v.endEditing()
+        makeFirstResponder(nil)
+        contentView = nil
+        loadedShelfView = nil
+        MemoryRelief.soon()
+    }
     private var undoSnapshot: [Snippet]?
 
     static let size = NSSize(width: 360, height: 420)
@@ -103,8 +133,7 @@ final class TextShelfPanel: NSPanel {
         hasShadow = true
         isOpaque = false
         backgroundColor = .clear
-        shelfView = TextShelfView(panel: self)
-        contentView = shelfView
+        _ = shelfView
     }
 
     override var canBecomeKey: Bool { true }
@@ -126,6 +155,7 @@ final class TextShelfPanel: NSPanel {
             r.origin.x = max(vis.minX + 4, min(vis.maxX - r.width - 4, r.origin.x))
             r.origin.y = max(vis.minY + 4, min(vis.maxY - r.height - 4, r.origin.y))
         }
+        releaseWork?.cancel(); releaseWork = nil
         setFrame(r, display: true)
         shelfView.reload()
         orderFrontRegardless()
@@ -136,8 +166,9 @@ final class TextShelfPanel: NSPanel {
         ShakeMonitor.shared.noteShelfClosed()
         hideTimer?.invalidate()
         hideTimer = nil
-        shelfView.endEditing()
+        loadedShelfView?.endEditing()
         orderOut(nil)
+        scheduleRelease()
     }
 
     /// Любое действие пользователя продлевает показ.
