@@ -180,7 +180,7 @@ struct SettingsView: View {
     @AppStorage("clipSkipPrivate", store: Prefs.d) private var clipSkipPrivate = false
     @AppStorage("clipPasteSeparator", store: Prefs.d) private var clipPasteSeparator = "tab"
     @AppStorage("clipEdge", store: Prefs.d) private var clipEdge = false
-    @AppStorage("clipGesture", store: Prefs.d) private var clipGesture = true
+    @AppStorage("clipGesture", store: Prefs.d) private var clipGesture = false
     @AppStorage("clipGestureCopy", store: Prefs.d) private var clipGestureCopy = true
     @AppStorage("copySound", store: Prefs.d) private var copySound = true
     @AppStorage("copySoundVolume", store: Prefs.d) private var copySoundVolume = 0.6
@@ -293,7 +293,7 @@ struct SettingsView: View {
                     Toggle("Three-finger press on selected text copies it", isOn: $clipGestureCopy)
                         .disabled(!clipGesture)
                         .padding(.leading, 18)
-                    Text("Press the trackpad with three fingers until it clicks, and the panel slides in from the side. The same gesture hides it. Clicking elsewhere doesn’t hide the panel, so you can click into a field and paste. If text is selected in an app, the same gesture copies it.")
+                    Text("Off by default. Press the trackpad with three fingers until it clicks, and the panel slides in from the side. The same gesture hides it. If text is selected in an app, it copies it instead. While it’s on, a two-finger right-click can arrive up to 90 ms later. If three-finger drag is on in System Settings, Kadr stays out of its way and the gesture does nothing.")
                         .font(.caption).foregroundStyle(.secondary)
                     if let problem = GestureTrigger.shared.problem {
                         Text(problem).font(.caption).foregroundStyle(.orange)

@@ -45,10 +45,11 @@ Kadr не ходит в сеть: в нём нет телеметрии, про�
   - Печатайте, чтобы искать. Фильтры по типу и закреплённые записи — в меню «…».
   - ⌘1–⌘9 вставляют карточку с этим номером.
   - ⌘-щелчок по нескольким карточкам и ↩ вставляют их по очереди через Tab, например логин и пароль.
-- **Нажатие тачпада тремя пальцами (до щелчка):**
+- **Нажатие тачпада тремя пальцами (до щелчка).** По желанию, по умолчанию выключено (Настройки → История):
   - если в программе выделен текст, он копируется;
   - если выделения нет, сбоку выезжает панель истории;
-  - тот же жест прячет панель.
+  - тот же жест прячет панель;
+  - если в системе включено перетаскивание тремя пальцами, Kadr его не трогает и жест не работает.
 - **Панель у края экрана:** история по упору курсора в край. По желанию, по умолчанию выключена.
 - **Звук при копировании:** короткий мягкий «тик», свой синтезированный; выключается и регулируется в настройках.
 - **Локальное шифрование.** История зашифрована на диске, пароли в списке скрыты точками.
@@ -271,7 +272,7 @@ KADR_PROFILE=t $K --profile-reset        # удалить данные, ключ
 
 Kadr is a macOS menu-bar utility for screenshots with an annotation editor. You can pin a screenshot above other
 windows or run OCR on it. Kadr also has a drag-and-drop file shelf, a text-snippet shelf and an encrypted clipboard
-history that opens with a three-finger trackpad press. It makes no network connections at all: no telemetry,
+history that opens with ⌥⇧V. It makes no network connections at all: no telemetry,
 no update checks, no accounts. English and Russian UI (follows system language, or pick one in Settings). Requires macOS 14+ on Apple Silicon or Intel.
 
 [Watch the 43-second video (MP4)](https://github.com/Lutfulla01/kadr/releases/download/v1.4/kadr-promo-16x9.mp4) · Questions, bugs and ideas: [r/Kadr](https://www.reddit.com/r/Kadr/)
@@ -286,8 +287,9 @@ no update checks, no accounts. English and Russian UI (follows system language, 
 - Text shelf with persistent snippets, pasted one after another.
 - Clipboard history shown as cards: type to search, filters in the "…" menu.
   ⌘1–⌘9 paste card N. Select several cards and press ↩ to paste them separated by Tab, e.g. login and password.
-- Three-finger trackpad press: copies the selected text if there is a selection, otherwise toggles the history panel.
-  The screen-edge panel is optional and off by default.
+- Optional three-finger trackpad press (off by default): copies the selected text if there is a selection,
+  otherwise toggles the history panel. If three-finger drag is on in System Settings, Kadr leaves it alone and the
+  gesture does nothing. The screen-edge panel is optional and off by default too.
 - A soft synthesized tick on every new copy (can be turned off, volume in Settings).
 - History is encrypted on disk with AES-GCM; the key is kept in the login Keychain. Passwords are masked in the list.
 
@@ -351,6 +353,6 @@ and you can exclude them or exclude specific apps in Settings. All data stays in
 
 **Testing.** `Kadr --status`, `--ocr <file>`, `--gesture-test`. With `KADR_PROFILE=<name>`, Kadr runs an isolated
 profile with its own settings, data, Keychain key and single-instance lock: `--clip-test write|reload`,
-`--profile-state`, `--profile-reset`.
+`--profile-state`, `--profile-reset`. `KADR_THREE_FINGER_DRAG=1` makes a test profile act as if three-finger drag were on.
 
 **License:** MIT.

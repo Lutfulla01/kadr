@@ -248,6 +248,7 @@ final class GestureTrigger {
     private var wakeObserver: Any?
     private var prefObserver: NSKeyValueObservation?
     private var enabled: Bool?
+    private var dragOn = false              // в системе включено перетаскивание тремя пальцами
     private var togglesStore = 0
     var toggles: Int { lock.lock(); defer { lock.unlock() }; return togglesStore }
 
@@ -256,6 +257,7 @@ final class GestureTrigger {
     /// Строка для настроек, если жест не работает (nil — всё в порядке или выключен).
     var problem: String? {
         guard Prefs.clipGesture else { return nil }
+        if dragOn { return L("Three-finger drag is on in System Settings, so Kadr leaves three-finger presses to macOS. Use ⌥⇧V or the screen edge.") }
         if !available { return L("The gesture isn't available on this Mac (no MultitouchSupport). ⌥⇧V still works.") }
         if tap == nil { return L("The gesture needs Accessibility access for Kadr. Until then, use ⌥⇧V.") }
         if deviceCount == 0 { return L("No trackpad found. The gesture will work once one is connected.") }
@@ -277,26 +279,46 @@ final class GestureTrigger {
     }
 
     func apply() {
-        let want = Prefs.clipGesture
+        let pref = Prefs.clipGesture
+        if pref { dragOn = GestureTrigger.systemThreeFingerDrag() }
+        let want = pref && !dragOn
+        // Пока жест включён в настройках, раз в 3 с: тачпады, доступ, перехват и системное перетаскивание тремя пальцами.
+        if pref, watchTimer == nil {
+            let t = Timer(timeInterval: 3, repeats: true) { [weak self] _ in self?.watch() }
+            t.tolerance = 1
+            RunLoop.main.add(t, forMode: .common)
+            watchTimer = t
+        } else if !pref {
+            watchTimer?.invalidate(); watchTimer = nil
+        }
         guard want != enabled else { return }
         enabled = want
         lock.lock(); on = want; lock.unlock()
         if want {
             restartDevices()
             ensureTap()
-            watchTimer?.invalidate()
-            // Подключили/отключили Magic Trackpad, отобрали доступ, система выключила перехват — чиним раз в 3 с.
-            let t = Timer(timeInterval: 3, repeats: true) { [weak self] _ in self?.watch() }
-            t.tolerance = 1
-            RunLoop.main.add(t, forMode: .common)
-            watchTimer = t
             KadrLog.write("жест: включён — устройств \(deviceCount), перехват \(tap != nil ? "есть" : "нет доступа"), MultitouchSupport \(available ? "есть" : "нет")")
         } else {
-            watchTimer?.invalidate(); watchTimer = nil
             stopDevices()
             removeTap()
-            KadrLog.write("жест: выключен")
+            KadrLog.write(pref ? "жест: уступил системе — включено перетаскивание тремя пальцами" : "жест: выключен")
         }
+    }
+
+    /// Системное перетаскивание тремя пальцами (Универсальный доступ → Управление указателем → Параметры трекпада).
+    /// Оно начинается с того же нажатия при трёх пальцах на тачпаде, поэтому, пока оно включено, жест ничего не перехватывает.
+    static func systemThreeFingerDrag() -> Bool {
+        // Тестовый профиль: KADR_THREE_FINGER_DRAG=1|0 вместо настоящей настройки (системную не трогаем).
+        if Profile.name != nil, let v = ProcessInfo.processInfo.environment["KADR_THREE_FINGER_DRAG"] { return v == "1" }
+        func isOn(_ v: CFPropertyList?) -> Bool { (v as? NSNumber)?.boolValue ?? false }
+        for domain in ["com.apple.AppleMultitouchTrackpad", "com.apple.driver.AppleBluetoothMultitouch.trackpad"] {
+            let dom = domain as CFString
+            CFPreferencesAppSynchronize(dom)
+            if isOn(CFPreferencesCopyAppValue("TrackpadThreeFingerDrag" as CFString, dom)) { return true }
+        }
+        let host = CFPreferencesCopyValue("com.apple.trackpad.threeFingerDragGesture" as CFString, kCFPreferencesAnyApplication,
+                                          kCFPreferencesCurrentUser, kCFPreferencesCurrentHost)
+        return isOn(host)
     }
 
     // MARK: Устройства
@@ -349,6 +371,8 @@ final class GestureTrigger {
     }
 
     private func watch() {
+        guard Prefs.clipGesture else { return }
+        if GestureTrigger.systemThreeFingerDrag() != dragOn { apply(); return }
         guard enabled == true else { return }
         if available {
             let n = listCount()

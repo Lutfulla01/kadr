@@ -127,7 +127,7 @@ enum Prefs {
             "copySoundVolume": 0.6,
             "showStatusItem": true,
             "clipEdge": false,
-            "clipGesture": true,
+            "clipGesture": false,      // перехват щелчка тремя пальцами — только по желанию
             "clipGestureCopy": true,
             "clipEdgeSide": "right",
             "clipEdgeDelay": 0.25,

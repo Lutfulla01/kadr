@@ -263,3 +263,5 @@
 "Yellow" = "Жёлтый";
 "Yesterday" = "вчера";
 "yyyy-MM-dd 'at' HH.mm.ss" = "yyyy-MM-dd 'в' HH.mm.ss";
+"Three-finger drag is on in System Settings, so Kadr leaves three-finger presses to macOS. Use ⌥⇧V or the screen edge." = "В системе включено перетаскивание тремя пальцами, поэтому Kadr не трогает нажатия тремя пальцами. Работают ⌥⇧V и край экрана.";
+"Off by default. Press the trackpad with three fingers until it clicks, and the panel slides in from the side. The same gesture hides it. If text is selected in an app, it copies it instead. While it’s on, a two-finger right-click can arrive up to 90 ms later. If three-finger drag is on in System Settings, Kadr stays out of its way and the gesture does nothing." = "По умолчанию выключено. Нажмите тачпад тремя пальцами до щелчка, и панель выедет сбоку; тот же жест её прячет. Если в программе выделен текст, жест его копирует. Пока жест включён, правый щелчок двумя пальцами может приходить до 90 мс позже. Если в системе включено перетаскивание тремя пальцами, Kadr ему не мешает и жест не работает.";
